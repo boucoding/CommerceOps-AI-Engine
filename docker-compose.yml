@@ -1,0 +1,65 @@
+services:
+  postgres-db:
+    image: pgvector/pgvector:pg16
+    container_name: commerceops-pgvector
+    restart: always
+    environment:
+      POSTGRES_DB: commerceops
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgrespassword
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./init_db.sql:/docker-entrypoint-initdb.d/init_db.sql
+      - pgvector_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d commerceops"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  commerceops-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: commerceops-engine
+    depends_on:
+      postgres-db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://postgres:postgrespassword@postgres-db:5432/commerceops
+      POSTGRES_HOST: postgres-db
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: commerceops
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgrespassword
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://47v4us7kyypinfb5lcligtc3x40ygqbs.lambda-url.us-east-1.on.aws/v1/}
+      LOG_LEVEL: INFO
+    volumes:
+      - .:/app
+    command: ["python", "run_pipeline.py"]
+
+  test-runner:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: commerceops-tests
+    depends_on:
+      postgres-db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://postgres:postgrespassword@postgres-db:5432/commerceops
+      POSTGRES_HOST: postgres-db
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: commerceops
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgrespassword
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://47v4us7kyypinfb5lcligtc3x40ygqbs.lambda-url.us-east-1.on.aws/v1/}
+    volumes:
+      - .:/app
+    command: ["pytest", "tests", "-v", "--cov=src", "--cov-report=term-missing"]
+
+volumes:
+  pgvector_data:
