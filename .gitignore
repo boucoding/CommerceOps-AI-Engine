@@ -28,3 +28,6 @@ htmlcov/
 
 # Local evaluation output
 evals/latest_*.md
+
+# Generated reports
+exports/

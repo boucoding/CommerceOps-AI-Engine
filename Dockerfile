@@ -42,6 +42,5 @@ COPY --from=dev-builder /opt/venv /opt/venv
 ENV COVERAGE_FILE=/tmp/.coverage
 COPY pyproject.toml .env.example ./
 COPY tests/ tests/
-COPY scripts/ scripts/
 HEALTHCHECK NONE
 CMD ["pytest", "-q", "-p", "no:cacheprovider"]
