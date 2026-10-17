@@ -71,6 +71,18 @@ class Database:
         finally:
             self._pool.putconn(conn)
 
+    @contextmanager
+    def read_only_cursor(self) -> Iterator[Cursor]:
+        """A READ ONLY transaction that is always rolled back, whatever the statements did."""
+        conn = self._pool.getconn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SET TRANSACTION READ ONLY")
+                yield cur
+        finally:
+            conn.rollback()
+            self._pool.putconn(conn)
+
     def close(self) -> None:
         if not self._pool.closed:
             self._pool.closeall()
