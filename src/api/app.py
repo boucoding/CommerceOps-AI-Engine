@@ -3,12 +3,12 @@ FastAPI service exposing the same pipeline as the batch CLI.
 
 Endpoints
     GET  /healthz                      liveness
-    GET  /readyz                       readiness (storage reachable, catalog loaded)
+    GET  /readyz                       readiness (database reachable)
     POST /v1/emails                    process one email (idempotent on email_id)
     POST /v1/emails/batch              process up to API_MAX_BATCH emails
     GET  /v1/emails/{email_id}         stored outcome
     GET  /v1/products/{product_id}     catalog item with live stock
-    GET  /v1/products?query=...        hybrid product search
+    GET  /v1/products?query=...        hybrid product search (same as the agent's search_catalog tool)
 
 When API_KEY is configured every /v1 route requires the ``X-API-Key`` header.
 """
@@ -24,7 +24,7 @@ from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, s
 from fastapi.responses import JSONResponse
 
 from src import __version__
-from src.api.schemas import BatchIn, BatchOut, EmailIn, OutcomeOut, ProductOut, SearchOut
+from src.api.schemas import BatchIn, BatchOut, EmailIn, OutcomeOut, ProductOut, SearchHit, SearchOut
 from src.config import Settings, get_settings
 from src.engine import Engine, build_engine
 from src.models.domain import CustomerEmail
@@ -57,7 +57,7 @@ def create_app(settings: Optional[Settings] = None, engine: Optional[Engine] = N
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         configure_logging(settings.LOG_LEVEL, settings.LOG_FORMAT)
         app.state.engine = engine or build_engine(settings)
-        logger.info("API ready (llm=%s, storage=%s)", app.state.engine.mode.value, app.state.engine.store.backend)
+        logger.info("API ready (llm=%s, model=%s)", settings.LLM_MODE.value, app.state.engine.llm.model)
         try:
             yield
         finally:
@@ -97,14 +97,14 @@ def create_app(settings: Optional[Settings] = None, engine: Optional[Engine] = N
         ok = engine.store.ping()
         body = {
             "status": "ready" if ok else "unavailable",
-            "storage": engine.store.backend,
-            "llm_mode": engine.mode.value,
+            "llm_mode": engine.settings.LLM_MODE.value,
+            "model": engine.llm.model,
         }
         return JSONResponse(body, status_code=200 if ok else 503)
 
     @app.post("/v1/emails", response_model=OutcomeOut, tags=["emails"], dependencies=secured)
     def process_email(item: EmailIn, engine: EngineDep) -> OutcomeOut:
-        outcome = engine.orchestrator.process_email(_to_email(item))
+        outcome = engine.process([_to_email(item)])[0]
         return OutcomeOut.from_outcome(outcome)
 
     @app.post("/v1/emails/batch", response_model=BatchOut, tags=["emails"], dependencies=secured)
@@ -114,7 +114,7 @@ def create_app(settings: Optional[Settings] = None, engine: Optional[Engine] = N
         emails = [_to_email(item) for item in batch.emails]
         if len({e.email_id for e in emails}) != len(emails):
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "email_id values must be unique")
-        outcomes = engine.orchestrator.process_batch(emails)
+        outcomes = engine.process(emails)
         return BatchOut(
             outcomes=[OutcomeOut.from_outcome(o) for o in outcomes],
             summary=summarize(outcomes, settings.LLM_PRICE_INPUT_PER_1M, settings.LLM_PRICE_OUTPUT_PER_1M),
@@ -140,10 +140,7 @@ def create_app(settings: Optional[Settings] = None, engine: Optional[Engine] = N
         query: Annotated[str, Query(min_length=2, max_length=500)],
         limit: Annotated[int, Query(ge=1, le=20)] = 5,
     ) -> SearchOut:
-        result = engine.orchestrator.retriever.retrieve(query, limit)
-        return SearchOut(
-            mentioned=[ProductOut.from_product(p) for p in result.mentioned],
-            related=[ProductOut.from_product(p) for p in result.related],
-        )
+        hits = engine.store.search(query, engine.agent.toolbox.embed(query), limit)
+        return SearchOut(results=[SearchHit(**p.to_dict(), match=m) for p, m in hits])
 
     return app

@@ -4,63 +4,79 @@ Application wiring shared by the CLI, the HTTP API and the evaluation harness.
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from typing import List, Optional
+from functools import lru_cache
+from typing import Callable, List, Optional, Sequence
 
+from src.agent.agent import EmailAgent
+from src.agent.tools import Toolbox
 from src.catalog import sync_catalog
-from src.config import LLMMode, Settings, StorageBackend
+from src.config import Settings
 from src.llm import build_llm_client
 from src.llm.base import LLMClient
 from src.loaders import load_products
-from src.models.domain import Product
-from src.pipeline.orchestrator import CommerceOpsOrchestrator
-from src.retrieval.embeddings import EmbeddingService
-from src.storage import Store, build_store
+from src.models.domain import CustomerEmail, EmailOutcome, Product
+from src.sandbox.sql import SQLSandbox
+from src.storage import PostgresStore, open_store
 from src.utils.logger import get_logger
 
 logger = get_logger("engine")
 
 
+def cached_embedder(llm: LLMClient, size: int = 2048) -> Callable[[str], List[float]]:
+    """Query-embedding cache (lru_cache is thread-safe; a rare duplicate computation is harmless)."""
+
+    @lru_cache(maxsize=size)
+    def _embed(text: str) -> tuple[float, ...]:
+        return tuple(llm.embed([text])[0])
+
+    return lambda text: list(_embed(text))
+
+
 @dataclass
 class Engine:
     settings: Settings
-    mode: LLMMode
-    store: Store
-    llm: Optional[LLMClient]
-    orchestrator: CommerceOpsOrchestrator
+    llm: LLMClient
+    store: PostgresStore
+    sandbox: SQLSandbox
+    agent: EmailAgent
+
+    def process(self, emails: Sequence[CustomerEmail]) -> List[EmailOutcome]:
+        """Processes emails in order (or with BATCH_WORKERS threads). Email IDs must be unique."""
+        ids = [e.email_id for e in emails]
+        if len(set(ids)) != len(ids):
+            raise ValueError("email_id values must be unique within a batch")
+        logger.info("Processing %d email(s) with %d worker(s)", len(emails), self.settings.BATCH_WORKERS)
+        if self.settings.BATCH_WORKERS == 1 or len(emails) <= 1:
+            return [self.agent.handle(e) for e in emails]
+        with ThreadPoolExecutor(max_workers=self.settings.BATCH_WORKERS, thread_name_prefix="agent") as pool:
+            return list(pool.map(self.agent.handle, emails))
 
     def close(self) -> None:
         save = getattr(self.llm, "save", None)
         if callable(save):
-            count = save()
-            logger.info("Saved %d recorded LLM responses to %s", count, self.settings.REPLAY_FIXTURES_PATH)
+            logger.info("Saved %d recorded LLM exchanges to %s", save(), self.settings.REPLAY_FIXTURES_PATH)
         self.store.close()
 
 
 def build_engine(
     settings: Settings,
-    mode: Optional[LLMMode] = None,
-    products: Optional[List[Product]] = None,
     reset: bool = False,
-    store: Optional[Store] = None,
+    products: Optional[List[Product]] = None,
     llm: Optional[LLMClient] = None,
 ) -> Engine:
     """
-    Builds a ready-to-use engine: LLM client, store (migrated), catalog synced.
-
-    ``reset`` restores catalog stock from the source and clears processed emails
-    (PostgreSQL); the in-memory store always starts fresh.
+    Connects to PostgreSQL (applying migrations), syncs the catalog and wires the agent.
+    ``reset`` clears processed emails and restores catalog stock from the source file.
     """
-    resolved = mode or settings.resolved_llm_mode()
-    if llm is None:
-        llm = build_llm_client(settings, resolved)
-    store = store or build_store(settings)
-    if reset and settings.STORAGE_BACKEND == StorageBackend.POSTGRES:
+    llm = llm or build_llm_client(settings)
+    store = open_store(settings)
+    if reset:
         store.reset_operations()
-
-    embedder = EmbeddingService(llm, settings.EMBEDDING_DIMENSIONS)
-    catalog = products if products is not None else load_products(settings.CATALOG_CSV_PATH)
-    sync_catalog(store, catalog, embedder, reset_stock=reset or store.backend == "memory")
-
-    orchestrator = CommerceOpsOrchestrator(store, llm, settings, embedder)
-    return Engine(settings, resolved, store, llm, orchestrator)
+    sync_catalog(
+        store, products if products is not None else load_products(settings.CATALOG_CSV_PATH), llm, reset_stock=reset
+    )
+    sandbox = SQLSandbox(store.db, settings)
+    toolbox = Toolbox(store, sandbox, cached_embedder(llm), settings)
+    return Engine(settings, llm, store, sandbox, EmailAgent(llm, store, toolbox, settings))

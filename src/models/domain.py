@@ -16,9 +16,15 @@ STATUS_OUT_OF_STOCK = "out of stock"
 
 
 class EmailStatus(StrEnum):
-    PROCESSED = "processed"  # handled end to end
-    NEEDS_CLARIFICATION = "needs_clarification"  # order request with no identifiable product
-    ESCALATED = "escalated"  # flagged by the security guardrail; no LLM call, no stock reserved
+    PROCESSED = "processed"  # reply sent; any order lines reserved
+    NEEDS_CLARIFICATION = "needs_clarification"  # order request where no product could be identified; reply asks
+    ESCALATED = "escalated"  # blocked by the input guardrail; never shown to the model
+    NEEDS_REVIEW = "needs_review"  # the agent gave up or ran out of budget; a person must finish it
+    FAILED = "failed"  # infrastructure error (e.g. model unavailable); safe to retry
+
+    @property
+    def is_final(self) -> bool:
+        return self is not EmailStatus.FAILED
 
 
 @dataclass
@@ -47,12 +53,10 @@ class CustomerEmail:
 
 
 @dataclass
-class RequestedItem:
-    """A catalog product the customer is ordering now, resolved against the catalog."""
-
+class ReservationRequest:
     product_id: str
     quantity: Optional[int]  # None when the customer asked for all available stock
-    wants_all_available: bool = False
+    all_available: bool = False
 
 
 @dataclass
@@ -78,46 +82,43 @@ class UsageStats:
         self.prompt_tokens += prompt_tokens
         self.completion_tokens += completion_tokens
 
-    def add(self, other: UsageStats) -> None:
-        self.llm_calls += other.llm_calls
-        self.replayed_calls += other.replayed_calls
-        self.prompt_tokens += other.prompt_tokens
-        self.completion_tokens += other.completion_tokens
-
 
 @dataclass
 class EmailOutcome:
     """Complete, auditable result of processing one customer email."""
 
     email_id: str
-    category: str
     status: EmailStatus
-    response: str
-    confidence: Optional[float] = None
-    language: str = "en"
+    category: Optional[str] = None
+    response: Optional[str] = None
+    language: Optional[str] = None
     customer_name: Optional[str] = None
     lines: List[OrderLine] = field(default_factory=list)
-    unresolved_mentions: List[str] = field(default_factory=list)
+    plan: Optional[Dict[str, Any]] = None
+    trace: List[Dict[str, Any]] = field(default_factory=list)
     context_product_ids: List[str] = field(default_factory=list)
     guardrail_flags: List[str] = field(default_factory=list)
-    degraded_reasons: List[str] = field(default_factory=list)
+    error: Optional[str] = None
     usage: UsageStats = field(default_factory=UsageStats)
     latency_ms: int = 0
     duplicate: bool = False
 
     @property
-    def degraded(self) -> bool:
-        return bool(self.degraded_reasons)
+    def tool_calls(self) -> List[str]:
+        return [e["tool"] for e in self.trace if e.get("type") == "tool"]
+
+    @property
+    def replans(self) -> int:
+        return sum(1 for e in self.trace if e.get("type") == "replan")
 
     def to_dict(self) -> Dict[str, Any]:
         data = asdict(self)
         data["status"] = self.status.value
-        data["degraded"] = self.degraded
         return data
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> EmailOutcome:
-        payload = {k: v for k, v in data.items() if k != "degraded"}
+        payload = dict(data)
         payload["status"] = EmailStatus(payload["status"])
         payload["lines"] = [OrderLine(**line) for line in payload.get("lines", [])]
         payload["usage"] = UsageStats(**payload.get("usage", {}))

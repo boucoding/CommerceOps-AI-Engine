@@ -1,69 +1,65 @@
 """
 Centralized, validated configuration for CommerceOps AI Engine.
 
-All values are read from environment variables (or a local ``.env`` file).
-Components receive a ``Settings`` instance explicitly so tests and the API can
-run with isolated configurations.
+Every value comes from environment variables (or a local ``.env`` file). Components
+receive a ``Settings`` instance explicitly, so tests and the API run with isolated
+configurations.
 """
 
 from __future__ import annotations
 
 from enum import StrEnum
 from functools import lru_cache
-from pathlib import Path
 from typing import Literal, Optional
 from urllib.parse import quote
 
-from pydantic import Field, SecretStr, field_validator
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# Values shipped in example files that must never be treated as a real key.
-_PLACEHOLDER_KEYS = {"", "your_openai_api_key_here", "sk-...", "changeme", "dummy-key"}
+_PLACEHOLDER_KEYS = {"", "your_openai_api_key_here", "sk-...", "changeme"}
 
 
 class LLMMode(StrEnum):
-    """How the engine talks to the language model."""
-
-    AUTO = "auto"  # live when an API key is configured, otherwise replay, otherwise offline
-    LIVE = "live"  # real OpenAI calls
-    RECORD = "record"  # real OpenAI calls, saved to the replay fixture file
-    REPLAY = "replay"  # deterministic answers from the replay fixture file
-    OFFLINE = "offline"  # no LLM at all; deterministic rules and templates only
-
-
-class StorageBackend(StrEnum):
-    MEMORY = "memory"
-    POSTGRES = "postgres"
+    LIVE = "live"  # call OpenAI
+    RECORD = "record"  # call OpenAI and save every exchange to REPLAY_FIXTURES_PATH
+    REPLAY = "replay"  # serve previously recorded exchanges (deterministic, no network)
 
 
 class Settings(BaseSettings):
     # Blank values (e.g. "LLM_TEMPERATURE=" in .env) fall back to the defaults below.
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore", env_ignore_empty=True)
 
-    # Application
     APP_NAME: str = "CommerceOps AI Engine"
-    ENV: str = Field(default="development", description="development | staging | production")
+    ENV: str = "development"
     LOG_LEVEL: str = "INFO"
     LOG_FORMAT: Literal["text", "json"] = "text"
 
     # LLM
-    LLM_MODE: LLMMode = LLMMode.AUTO
+    LLM_MODE: LLMMode = LLMMode.LIVE
     OPENAI_API_KEY: SecretStr = SecretStr("")
     OPENAI_BASE_URL: Optional[str] = None
     LLM_MODEL: str = "gpt-6-luna"
-    LLM_TEMPERATURE: Optional[float] = Field(
-        default=None, description="Omitted from requests when unset (some models only accept the default)."
-    )
+    LLM_TEMPERATURE: Optional[float] = Field(default=None, description="Only sent when set.")
     LLM_TIMEOUT_SECONDS: float = 60.0
     LLM_MAX_RETRIES: int = 3
     EMBEDDING_MODEL: str = "text-embedding-3-small"
-    EMBEDDING_DIMENSIONS: int = 1536
-    REPLAY_FIXTURES_PATH: str = "fixtures/llm_replays.json"
-    LLM_PRICE_INPUT_PER_1M: Optional[float] = Field(default=None, description="USD per 1M prompt tokens")
-    LLM_PRICE_OUTPUT_PER_1M: Optional[float] = Field(default=None, description="USD per 1M completion tokens")
+    EMBEDDING_DIMENSIONS: int = 1536  # must match the vector(1536) column
+    REPLAY_FIXTURES_PATH: str = "fixtures/llm_recordings.json"
+    LLM_PRICE_INPUT_PER_1M: Optional[float] = None
+    LLM_PRICE_OUTPUT_PER_1M: Optional[float] = None
 
-    # Storage
-    STORAGE_BACKEND: StorageBackend = StorageBackend.MEMORY
+    # Agent budgets and policy
+    AGENT_MAX_STEPS: int = Field(default=12, ge=2, le=50, description="Max executor turns per email")
+    AGENT_MAX_REPLANS: int = Field(default=2, ge=0, le=10)
+    AGENT_MAX_ORDER_QUANTITY: int = Field(default=50, ge=1, description="Larger requests go to human review")
+    SEARCH_RESULT_LIMIT: int = Field(default=8, ge=1, le=25)
+
+    # SQL sandbox
+    SQL_STATEMENT_TIMEOUT_MS: int = Field(default=2000, ge=100)
+    SQL_MAX_ROWS: int = Field(default=50, ge=1, le=1000)
+    SQL_MAX_CELL_CHARS: int = Field(default=200, ge=10)
+
+    # PostgreSQL
     DATABASE_URL: Optional[str] = None
     POSTGRES_HOST: str = "localhost"
     POSTGRES_PORT: int = 5432
@@ -75,17 +71,11 @@ class Settings(BaseSettings):
     DB_CONNECT_TIMEOUT_SECONDS: int = 5
     DB_CONNECT_RETRIES: int = 10
 
-    # Retrieval
-    ORDER_CANDIDATE_TOP_K: int = Field(default=5, ge=1, le=50)
-    INQUIRY_TOP_K: int = Field(default=4, ge=1, le=50)
-    SKU_FUZZY_THRESHOLD: float = Field(default=80.0, ge=0, le=100)
-    NAME_MATCH_THRESHOLD: float = Field(default=88.0, ge=0, le=100)
-    RRF_K: int = 60
+    # Batch processing. 1 keeps first-come-first-served stock allocation and reproducible runs;
+    # higher values are safe (row locks prevent overselling) but allocation order becomes nondeterministic.
+    BATCH_WORKERS: int = Field(default=1, ge=1, le=64)
 
-    # Processing
-    BATCH_WORKERS: int = Field(default=4, ge=1, le=64)
-
-    # Brand identity used in prompts, templates and signatures
+    # Brand identity used in prompts and the reply signature
     BRAND_NAME: str = "Aura Fashion Atelier"
     AGENT_NAME: str = "The Aura Concierge Team"
     SUPPORT_EMAIL: str = "concierge@aurafashion.com"
@@ -97,15 +87,8 @@ class Settings(BaseSettings):
     EXPORT_DIR: str = "exports"
 
     # HTTP API
-    API_KEY: Optional[SecretStr] = Field(default=None, description="When set, requests must send X-API-Key")
-    API_MAX_BATCH: int = 100
-
-    @field_validator("OPENAI_BASE_URL", "DATABASE_URL", mode="before")
-    @classmethod
-    def _blank_to_none(cls, value: object) -> object:
-        if isinstance(value, str) and not value.strip():
-            return None
-        return value
+    API_KEY: Optional[SecretStr] = None
+    API_MAX_BATCH: int = 50
 
     @property
     def has_openai_key(self) -> bool:
@@ -120,19 +103,12 @@ class Settings(BaseSettings):
         auth = f"{self.POSTGRES_USER}:{password}" if password else self.POSTGRES_USER
         return f"postgresql://{auth}@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
 
-    def resolved_llm_mode(self) -> LLMMode:
-        """Resolves AUTO into a concrete mode and validates the explicit ones."""
+    def validate_llm_mode(self) -> None:
         if self.LLM_MODE in (LLMMode.LIVE, LLMMode.RECORD) and not self.has_openai_key:
-            raise ValueError(f"LLM_MODE={self.LLM_MODE.value} requires a real OPENAI_API_KEY.")
-        if self.LLM_MODE == LLMMode.REPLAY and not Path(self.REPLAY_FIXTURES_PATH).exists():
-            raise ValueError(f"LLM_MODE=replay but {self.REPLAY_FIXTURES_PATH} does not exist.")
-        if self.LLM_MODE != LLMMode.AUTO:
-            return self.LLM_MODE
-        if self.has_openai_key:
-            return LLMMode.LIVE
-        if Path(self.REPLAY_FIXTURES_PATH).exists():
-            return LLMMode.REPLAY
-        return LLMMode.OFFLINE
+            raise ValueError(
+                f"LLM_MODE={self.LLM_MODE.value} needs OPENAI_API_KEY. "
+                "Set it in .env, or use LLM_MODE=replay with a recordings file."
+            )
 
     @property
     def signature_block(self) -> str:

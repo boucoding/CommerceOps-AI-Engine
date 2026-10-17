@@ -1,148 +1,136 @@
 """
-Gold-label evaluation of the full pipeline on the bundled sample emails.
+Gold-label evaluation of the agent on the bundled sample emails.
 
-Always runs against a fresh in-memory store so stock starts from the catalog file
-and results are reproducible. The LLM mode decides what is being measured:
-``offline`` measures the deterministic rules, ``replay`` measures the pipeline on
-the fixture answers, ``live`` measures the configured model.
+Runs against a freshly reset database so stock starts from the catalog file. In
+`live` mode it measures the configured model; in `replay` mode it re-scores a
+recorded run deterministically (used by CI).
 """
 
 from __future__ import annotations
 
 import json
-import re
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Sequence
 
-from src.config import LLMMode, Settings, StorageBackend
+from src.config import Settings
 from src.engine import build_engine
 from src.loaders import load_emails
-from src.models.domain import EmailOutcome
-
-_PLACEHOLDER = re.compile(r"\[(?:[A-Z][A-Za-z'’]*)(?:[ /'’-][A-Za-z'’]+){0,5}\]")
-Line = Tuple[str, int, str]
+from src.models.domain import ORDER_REQUEST, EmailOutcome
+from src.safety.reply_validation import cited_product_ids
 
 
 @dataclass
 class EvalResult:
     mode: str
-    replay_source: Optional[str]
+    model: str
     metrics: Dict[str, float]
     counts: Dict[str, Any]
     failures: List[str] = field(default_factory=list)
 
     def to_markdown(self) -> str:
-        label = self.mode + (f" ({self.replay_source} fixtures)" if self.replay_source else "")
-        rows = "\n".join(f"| {name} | {value:.1%} |" for name, value in self.metrics.items())
-        counts = "\n".join(f"| {name} | {value} |" for name, value in self.counts.items())
+        rows = "\n".join(f"| {k} | {v:.1%} |" for k, v in self.metrics.items())
+        counts = "\n".join(f"| {k} | {v} |" for k, v in self.counts.items())
         failures = "\n".join(f"- {f}" for f in self.failures) or "- none"
         return (
-            f"## Evaluation: {label}\n\n| Metric | Score |\n|---|---|\n{rows}\n\n"
+            f"## Evaluation: {self.model} ({self.mode})\n\n| Metric | Score |\n|---|---|\n{rows}\n\n"
             f"| Count | Value |\n|---|---|\n{counts}\n\n### Mismatches\n{failures}\n"
         )
 
 
-def _ratio(num: int, den: int) -> float:
+def _ratio(num: float, den: float) -> float:
     return num / den if den else 1.0
 
 
-def evaluate(
-    outcomes: Sequence[EmailOutcome],
-    gold: Dict[str, Dict[str, Any]],
-    mode: str,
-    replay_source: Optional[str],
-    signature: str,
-) -> EvalResult:
+def plan_adherence(outcome: EmailOutcome) -> float:
+    """Share of planned steps whose tool was actually executed (multiset match, order-insensitive)."""
+    planned = [s["tool"] for s in (outcome.plan or {}).get("steps", [])]
+    executed = list(outcome.tool_calls)
+    hits = 0
+    for tool in planned:
+        if tool in executed:
+            executed.remove(tool)
+            hits += 1
+    return _ratio(hits, len(planned))
+
+
+def evaluate(outcomes: Sequence[EmailOutcome], gold: Dict[str, Dict[str, Any]], mode: str, model: str) -> EvalResult:
     by_id = {o.email_id: o for o in outcomes}
     failures: List[str] = []
+    n = len(gold)
     intent_ok = name_ok = status_ok = lang_n = lang_ok = 0
-    exact_orders = order_emails = 0
-    tp = fp = fn = 0
-    ctx_hit = ctx_total = 0
-    leaks = unsigned = 0
+    tp = fp = fn = exact = orders = ctx_hit = ctx_total = grounded = 0
+    adherence: List[float] = []
 
-    for email_id, expected in gold.items():
+    for email_id, want in gold.items():
         o = by_id.get(email_id)
         if o is None:
             failures.append(f"{email_id}: missing outcome")
             continue
-        if o.category == expected["category"]:
-            intent_ok += 1
-        else:
-            failures.append(f"{email_id}: category {o.category!r} != {expected['category']!r}")
-        if (o.customer_name or None) == expected.get("customer_name"):
-            name_ok += 1
-        else:
-            failures.append(f"{email_id}: customer_name {o.customer_name!r} != {expected.get('customer_name')!r}")
-        expected_status = expected.get("status", "processed")
-        if o.status.value == expected_status:
-            status_ok += 1
-        else:
-            failures.append(f"{email_id}: status {o.status.value!r} != {expected_status!r}")
-        if "language" in expected:
+        adherence.append(plan_adherence(o))
+
+        def check(ok: bool, label: str, got: Any, expected: Any, eid: str = email_id) -> int:
+            if not ok:
+                failures.append(f"{eid}: {label} {got!r} != {expected!r}")
+            return int(ok)
+
+        intent_ok += check(o.category == want["category"], "category", o.category, want["category"])
+        name_ok += check(
+            o.customer_name == want.get("customer_name"), "customer_name", o.customer_name, want.get("customer_name")
+        )
+        expected_status = want.get("status", "processed")
+        status_ok += check(o.status.value == expected_status, "status", o.status.value, expected_status)
+        if "language" in want:
             lang_n += 1
-            lang_ok += o.language == expected["language"]
-            if o.language != expected["language"]:
-                failures.append(f"{email_id}: language {o.language!r} != {expected['language']!r}")
+            lang_ok += check(o.language == want["language"], "language", o.language, want["language"])
 
-        if expected["category"] == "order request":
-            order_emails += 1
-            want = {tuple(line) for line in expected.get("lines", [])}
-            got = {(ln.product_id, ln.requested_quantity, ln.status) for ln in o.lines}
-            tp += len(want & got)
-            fp += len(got - want)
-            fn += len(want - got)
-            if want == got:
-                exact_orders += 1
-            else:
-                failures.append(f"{email_id}: lines {sorted(got)} != {sorted(want)}")
+        if want["category"] == ORDER_REQUEST:
+            orders += 1
+            expected_lines = {tuple(line) for line in want.get("lines", [])}
+            got_lines = {(ln.product_id, ln.requested_quantity, ln.status) for ln in o.lines}
+            tp += len(expected_lines & got_lines)
+            fp += len(got_lines - expected_lines)
+            fn += len(expected_lines - got_lines)
+            exact += check(expected_lines == got_lines, "lines", sorted(got_lines), sorted(expected_lines))
 
-        for pid in expected.get("context", []):
+        for pid in want.get("context", []):
             ctx_total += 1
-            if pid in o.context_product_ids:
-                ctx_hit += 1
-            else:
-                failures.append(f"{email_id}: expected {pid} in reply context")
+            ctx_hit += check(pid in o.context_product_ids, "context is missing", pid, "found by a tool")
 
-        if _PLACEHOLDER.search(o.response):
-            leaks += 1
-            failures.append(f"{email_id}: placeholder leak in reply")
-        if signature not in o.response:
-            unsigned += 1
-            failures.append(f"{email_id}: reply is missing the brand signature")
+        if o.response is not None:
+            grounded += int(set(cited_product_ids(o.response)) <= set(o.context_product_ids))
 
-    n = len(gold)
-    precision, recall = _ratio(tp, tp + fp), _ratio(tp, tp + fn)
+    answered = sum(o.response is not None for o in outcomes)
     metrics = {
         "intent accuracy": _ratio(intent_ok, n),
-        "order line precision": precision,
-        "order line recall": recall,
-        "orders fully correct": _ratio(exact_orders, order_emails),
+        "order line precision": _ratio(tp, tp + fp),
+        "order line recall": _ratio(tp, tp + fn),
+        "orders fully correct": _ratio(exact, orders),
         "email status accuracy": _ratio(status_ok, n),
         "customer name accuracy": _ratio(name_ok, n),
         "reply language accuracy": _ratio(lang_ok, lang_n),
-        "inquiry context recall": _ratio(ctx_hit, ctx_total),
-        "replies without placeholder leaks": _ratio(n - leaks, n),
-        "replies with brand signature": _ratio(n - unsigned, n),
+        "context recall": _ratio(ctx_hit, ctx_total),
+        "replies fully grounded": _ratio(grounded, answered),
+        "plan adherence": _ratio(sum(adherence), len(adherence)),
     }
     counts = {
         "emails": n,
-        "degraded (fell back to rules/templates)": sum(o.degraded for o in outcomes),
+        "tool calls": sum(len(o.tool_calls) for o in outcomes),
+        "replans": sum(o.replans for o in outcomes),
+        "SQL queries": sum(o.tool_calls.count("query_database") for o in outcomes),
+        "needs review / failed": sum(o.status.value in ("needs_review", "failed") for o in outcomes),
         "LLM calls": sum(o.usage.llm_calls for o in outcomes),
         "prompt tokens": sum(o.usage.prompt_tokens for o in outcomes),
         "completion tokens": sum(o.usage.completion_tokens for o in outcomes),
     }
-    return EvalResult(mode, replay_source, metrics, counts, failures)
+    return EvalResult(mode, model, metrics, counts, failures)
 
 
-def run_evaluation(settings: Settings, mode: LLMMode, gold_path: str = "evals/gold_labels.json") -> EvalResult:
+def run_evaluation(settings: Settings, gold_path: str = "evals/gold_labels.json") -> EvalResult:
     with open(gold_path, encoding="utf-8") as fh:
         gold = json.load(fh)["emails"]
-    eval_settings = settings.model_copy(update={"STORAGE_BACKEND": StorageBackend.MEMORY})
-    engine = build_engine(eval_settings, mode=mode)
+    engine = build_engine(settings.model_copy(update={"BATCH_WORKERS": 1}), reset=True)
     try:
-        outcomes = engine.orchestrator.process_batch(load_emails(eval_settings.INBOUND_EMAILS_CSV_PATH))
+        outcomes = engine.process(load_emails(settings.INBOUND_EMAILS_CSV_PATH))
     finally:
         engine.close()
-    source = getattr(engine.llm, "source", None) if mode == LLMMode.REPLAY else None
-    return evaluate(outcomes, gold, mode.value, source, eval_settings.signature_block)
+    return evaluate(outcomes, gold, settings.LLM_MODE.value, engine.llm.model)

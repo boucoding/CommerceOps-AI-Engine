@@ -7,7 +7,7 @@ Design notes
   re-matched by a later pattern, and patterns are tightly bounded so ordinary
   prose ("5 of them, exactly as we discussed...") is never swallowed.
 - Long digit runs are always masked; only Luhn-valid ones are labelled CREDIT_CARD.
-- Flagged emails are never sent to the model (see ``CommerceOpsOrchestrator``).
+- Flagged emails are never sent to the model (see ``EmailAgent``).
 """
 
 from __future__ import annotations

@@ -51,7 +51,7 @@ def build_report(outcomes: Sequence[EmailOutcome]) -> Report:
     inquiry_resp: List[dict] = []
     audit: List[dict] = []
     for o in outcomes:
-        classification.append({"email ID": o.email_id, "category": o.category})
+        classification.append({"email ID": o.email_id, "category": o.category or "unclassified"})
         for line in o.lines:
             status.append(
                 {
@@ -61,24 +61,24 @@ def build_report(outcomes: Sequence[EmailOutcome]) -> Report:
                     "status": line.status,
                 }
             )
-        target = order_resp if o.category == ORDER_REQUEST else inquiry_resp
-        target.append({"email ID": o.email_id, "response": o.response})
+        if o.response is not None:
+            target = order_resp if o.category == ORDER_REQUEST else inquiry_resp
+            target.append({"email ID": o.email_id, "response": o.response})
         audit.append(
             {
                 "email ID": o.email_id,
-                "category": o.category,
+                "category": o.category or "",
                 "status": o.status.value,
-                "confidence": o.confidence,
-                "language": o.language,
+                "language": o.language or "",
                 "customer name": o.customer_name or "",
+                "planned steps": " > ".join(step["tool"] for step in (o.plan or {}).get("steps", [])),
+                "tool calls": " > ".join(o.tool_calls),
+                "replans": o.replans,
                 "order lines": len(o.lines),
-                "unresolved mentions": "; ".join(o.unresolved_mentions),
                 "context products": ", ".join(o.context_product_ids),
                 "guardrail flags": ", ".join(o.guardrail_flags),
-                "degraded": o.degraded,
-                "degraded reasons": " | ".join(o.degraded_reasons),
+                "error": o.error or "",
                 "llm calls": o.usage.llm_calls,
-                "replayed calls": o.usage.replayed_calls,
                 "prompt tokens": o.usage.prompt_tokens,
                 "completion tokens": o.usage.completion_tokens,
                 "latency ms": o.latency_ms,
@@ -106,7 +106,7 @@ def export_report(report: Report, export_dir: str, include_audit: bool = True) -
     with pd.ExcelWriter(workbook, engine="openpyxl") as writer:
         for name, df in sheets.items():
             df.to_excel(writer, sheet_name=name, index=False)
-            column_widths = {"response": 100, "degraded reasons": 60, "context products": 40}
+            column_widths = {"response": 100, "tool calls": 60, "planned steps": 60, "context products": 40}
             sheet = writer.sheets[name]
             for idx, column in enumerate(df.columns):
                 letter = sheet.cell(row=1, column=idx + 1).column_letter
@@ -133,7 +133,10 @@ def summarize(
         "order_lines": sum(len(o.lines) for o in outcomes),
         "needs_clarification": sum(o.status.value == "needs_clarification" for o in outcomes),
         "escalated": sum(o.status.value == "escalated" for o in outcomes),
-        "degraded": sum(o.degraded for o in outcomes),
+        "needs_review": sum(o.status.value == "needs_review" for o in outcomes),
+        "failed": sum(o.status.value == "failed" for o in outcomes),
+        "tool_calls": sum(len(o.tool_calls) for o in outcomes),
+        "replans": sum(o.replans for o in outcomes),
         "duplicates": sum(o.duplicate for o in outcomes),
         "llm_calls": sum(o.usage.llm_calls for o in outcomes),
         "replayed_calls": sum(o.usage.replayed_calls for o in outcomes),

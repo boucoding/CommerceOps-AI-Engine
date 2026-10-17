@@ -1,22 +1,16 @@
-"""Storage backends (in-memory and PostgreSQL + pgvector)."""
+"""PostgreSQL storage: connection pool, migrations and the store."""
 
 from __future__ import annotations
 
-from src.config import Settings, StorageBackend
-from src.storage.base import CatalogEntry, DuplicateEmailError, Store
-from src.storage.memory import MemoryStore
+from src.config import Settings
+from src.storage.db import Database
+from src.storage.migrate import apply_migrations
+from src.storage.postgres import DuplicateEmailError, PostgresStore, UnknownProductError
 
-__all__ = ["CatalogEntry", "DuplicateEmailError", "MemoryStore", "Store", "build_store"]
+__all__ = ["Database", "DuplicateEmailError", "PostgresStore", "UnknownProductError", "open_store"]
 
 
-def build_store(settings: Settings, migrate: bool = True) -> Store:
-    if settings.STORAGE_BACKEND == StorageBackend.MEMORY:
-        return MemoryStore()
-
-    from src.storage.db import Database
-    from src.storage.migrate import apply_migrations
-    from src.storage.postgres import PostgresStore
-
+def open_store(settings: Settings, migrate: bool = True) -> PostgresStore:
     db = Database(settings)
     if migrate:
         apply_migrations(db)

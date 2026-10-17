@@ -1,244 +1,296 @@
 """
-PostgreSQL + pgvector store.
+PostgreSQL + pgvector store: catalog, hybrid search, stock reservations and the
+email audit trail.
 
-- Dense retrieval: ``ORDER BY embedding <=> query LIMIT k`` so the HNSW index is used.
-- Lexical retrieval: generated ``tsvector`` columns with GIN indexes produce candidates,
-  which are ranked with the shared BM25 scorer and persisted corpus statistics.
-- SKU typo recovery: ``pg_trgm`` similarity on ``product_id`` (GIN trigram index).
-- Reservations: the email row, stock decrements and order lines are written in one
-  transaction, with the affected product rows locked via ``SELECT ... FOR UPDATE``
-  (taken in primary-key order to avoid deadlocks between concurrent orders).
+- Hybrid search runs in one SQL statement: exact and typo-tolerant product-ID
+  matches (pg_trgm), plus dense (HNSW) and full-text results fused with
+  Reciprocal Rank Fusion.
+- Reservations lock the affected product rows (``SELECT ... FOR UPDATE`` in
+  primary-key order, so concurrent orders cannot deadlock) and are idempotent per
+  (email, product): a retried email never reserves the same product twice.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
-import threading
-import time
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-import numpy as np
-import psycopg2
 from psycopg2.extras import execute_values
 
-from src.models.domain import EmailOutcome, OrderLine, Product, RequestedItem
-from src.retrieval import bm25
-from src.retrieval.dense import normalize_rows, rank_by_cosine
-from src.retrieval.text import STOPWORDS, fold, stem
-from src.storage.base import CatalogEntry, DuplicateEmailError, decide_reservation
+from src.models.domain import (
+    STATUS_CREATED,
+    STATUS_OUT_OF_STOCK,
+    EmailOutcome,
+    EmailStatus,
+    OrderLine,
+    Product,
+    ReservationRequest,
+)
 from src.storage.db import Database
+from src.utils.logger import get_logger
 
-_PRODUCT_COLUMNS = "product_id, name, category, description, stock, seasons, price"
-_WORD_RE = re.compile(r"[a-z0-9]+")
-_LEXICAL_CANDIDATES = 50
-_DENSE_CANDIDATES = 40
-_STATS_TTL_SECONDS = 300.0
+logger = get_logger("storage")
 
-
-def _row_to_product(row: Sequence[Any]) -> Product:
-    return Product(
-        product_id=row[0],
-        name=row[1],
-        category=row[2],
-        description=row[3],
-        stock=int(row[4]),
-        seasons=row[5],
-        price=float(row[6]),
-    )
+_COLUMNS = "product_id, name, category, description, stock, seasons, price"
+_WORD = re.compile(r"[a-z0-9]+")
+_ID_TOKEN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{2,40}")
+_RRF_K = 60
+_ID_SIMILARITY = 0.4
 
 
-def _vector_literal(vector: Sequence[float]) -> str:
-    return "[" + ",".join(f"{float(v):.7g}" for v in vector) + "]"
+class DuplicateEmailError(Exception):
+    """The email already has a final outcome; it is returned instead of being processed again."""
 
 
-def _or_tsquery(text: str, max_terms: int = 64) -> Optional[str]:
-    """Builds an OR tsquery from plain alphanumeric words (safe: no tsquery operators survive)."""
+class UnknownProductError(ValueError):
+    pass
+
+
+def _product(row: Sequence[Any]) -> Product:
+    return Product(row[0], row[1], row[2], row[3], int(row[4]), row[5], float(row[6]))
+
+
+def _vector(values: Sequence[float]) -> str:
+    return "[" + ",".join(f"{float(v):.7g}" for v in values) + "]"
+
+
+def content_hash(product: Product) -> str:
+    return hashlib.sha256(product.embedding_text().encode("utf-8")).hexdigest()[:32]
+
+
+def id_candidates(query: str) -> List[str]:
+    """Tokens that could be product IDs: contain both letters and digits ('CBT8901', 'sku-42a')."""
+    seen: List[str] = []
+    for token in _ID_TOKEN.findall(query):
+        if any(c.isdigit() for c in token) and any(c.isalpha() for c in token):
+            canonical = token.upper().replace("-", "").replace("_", "")
+            if canonical not in seen:
+                seen.append(canonical)
+    return seen
+
+
+def _or_tsquery(text: str, max_terms: int = 32) -> Optional[str]:
     words: List[str] = []
-    for word in _WORD_RE.findall(fold(text)):
-        if word in STOPWORDS:
-            continue
-        # Include our own light stem too: PostgreSQL's English stemmer maps "scarves" to "scarv", not "scarf".
-        for form in (word, stem(word)):
-            if form not in words:
-                words.append(form)
+    for word in _WORD.findall(text.lower()):
+        if word not in words:
+            words.append(word)
     return " | ".join(words[:max_terms]) or None
 
 
-class PostgresStore:
-    backend = "postgres"
+def decide_reservation(item: ReservationRequest, product: Product) -> Tuple[OrderLine, int]:
+    """All-or-nothing per line: reserve the full quantity if stock allows, otherwise leave stock untouched."""
+    stock = product.stock
+    requested = (stock if stock > 0 else 1) if item.all_available else max(1, int(item.quantity or 1))
+    if stock >= requested:
+        return OrderLine(product.product_id, product.name, requested, requested, STATUS_CREATED, stock - requested), (
+            stock - requested
+        )
+    return OrderLine(product.product_id, product.name, requested, 0, STATUS_OUT_OF_STOCK, stock), stock
 
+
+class PostgresStore:
     def __init__(self, db: Database):
         self.db = db
-        self._stats: Optional[bm25.CorpusStats] = None
-        self._stats_loaded_at = 0.0
-        self._stats_lock = threading.Lock()
 
     def ping(self) -> bool:
         try:
             with self.db.cursor() as cur:
                 cur.execute("SELECT 1")
                 return cur.fetchone() == (1,)
-        except psycopg2.Error:
+        except Exception:  # noqa: BLE001 - readiness probe must never raise
             return False
 
     # ------------------------------------------------------------------ catalog
     def embedding_fingerprints(self) -> Dict[str, Tuple[Optional[str], Optional[str]]]:
         with self.db.cursor() as cur:
             cur.execute("SELECT product_id, embedding_model, embedding_hash FROM products")
-            return {row[0]: (row[1], row[2]) for row in cur.fetchall()}
+            return {r[0]: (r[1], r[2]) for r in cur.fetchall()}
 
-    def upsert_catalog(self, entries: Sequence[CatalogEntry], reset_stock: bool) -> None:
-        if not entries:
+    def upsert_products(
+        self, products: Sequence[Product], embeddings: Dict[str, List[float]], model: str, reset_stock: bool
+    ) -> None:
+        """Inserts/updates products. Stock of existing rows is preserved unless ``reset_stock``."""
+        if not products:
             return
-        records = [
-            (
-                e.product.product_id,
-                e.product.name,
-                e.product.category,
-                e.product.description,
-                e.product.stock,
-                e.product.seasons,
-                e.product.price,
-                _vector_literal(e.embedding) if e.embedding is not None else None,
-                e.embedding_model if e.embedding is not None else None,
-                e.embedding_hash if e.embedding is not None else None,
+        records = []
+        for p in products:
+            vector = embeddings.get(p.product_id)
+            records.append(
+                (
+                    p.product_id,
+                    p.name,
+                    p.category,
+                    p.description,
+                    p.stock,
+                    p.seasons,
+                    p.price,
+                    _vector(vector) if vector is not None else None,
+                    model if vector is not None else None,
+                    content_hash(p) if vector is not None else None,
+                )
             )
-            for e in entries
-        ]
-        stock_rule = "EXCLUDED.stock" if reset_stock else "products.stock"
-        sql = f"""
-            INSERT INTO products (product_id, name, category, description, stock, seasons, price,
-                                  embedding, embedding_model, embedding_hash)
-            VALUES %s
-            ON CONFLICT (product_id) DO UPDATE SET
-                name = EXCLUDED.name,
-                category = EXCLUDED.category,
-                description = EXCLUDED.description,
-                stock = {stock_rule},
-                seasons = EXCLUDED.seasons,
-                price = EXCLUDED.price,
-                embedding = COALESCE(EXCLUDED.embedding, products.embedding),
-                embedding_model = COALESCE(EXCLUDED.embedding_model, products.embedding_model),
-                embedding_hash = COALESCE(EXCLUDED.embedding_hash, products.embedding_hash)
-        """
+        stock = "EXCLUDED.stock" if reset_stock else "products.stock"
         with self.db.cursor() as cur:
-            execute_values(cur, sql, records, template="(%s, %s, %s, %s, %s, %s, %s, %s::vector, %s, %s)")
-            cur.execute(f"SELECT {_PRODUCT_COLUMNS} FROM products")
-            stats = bm25.CorpusStats.from_documents(_row_to_product(r).embedding_text() for r in cur.fetchall())
-            cur.execute(
-                "INSERT INTO lexical_stats (id, stats) VALUES (TRUE, %s::jsonb) "
-                "ON CONFLICT (id) DO UPDATE SET stats = EXCLUDED.stats, updated_at = now()",
-                (json.dumps(stats.to_dict()),),
+            execute_values(
+                cur,
+                f"""
+                INSERT INTO products (product_id, name, category, description, stock, seasons, price,
+                                      embedding, embedding_model, embedding_hash)
+                VALUES %s
+                ON CONFLICT (product_id) DO UPDATE SET
+                    name = EXCLUDED.name, category = EXCLUDED.category, description = EXCLUDED.description,
+                    stock = {stock}, seasons = EXCLUDED.seasons, price = EXCLUDED.price,
+                    embedding = COALESCE(EXCLUDED.embedding, products.embedding),
+                    embedding_model = COALESCE(EXCLUDED.embedding_model, products.embedding_model),
+                    embedding_hash = COALESCE(EXCLUDED.embedding_hash, products.embedding_hash)
+                """,
+                records,
+                template="(%s, %s, %s, %s, %s, %s, %s, %s::vector, %s, %s)",
             )
-        with self._stats_lock:
-            self._stats, self._stats_loaded_at = stats, time.monotonic()
-
-    def _corpus_stats(self) -> bm25.CorpusStats:
-        with self._stats_lock:
-            if self._stats is not None and time.monotonic() - self._stats_loaded_at < _STATS_TTL_SECONDS:
-                return self._stats
-        with self.db.cursor() as cur:
-            cur.execute("SELECT stats FROM lexical_stats WHERE id")
-            row = cur.fetchone()
-        stats = bm25.CorpusStats.from_dict(row[0]) if row else bm25.CorpusStats()
-        with self._stats_lock:
-            self._stats, self._stats_loaded_at = stats, time.monotonic()
-        return stats
-
-    def list_products(self) -> List[Product]:
-        with self.db.cursor() as cur:
-            cur.execute(f"SELECT {_PRODUCT_COLUMNS} FROM products ORDER BY product_id")
-            return [_row_to_product(r) for r in cur.fetchall()]
 
     def get_products(self, product_ids: Sequence[str]) -> Dict[str, Product]:
-        if not product_ids:
+        ids = [p.strip().upper() for p in product_ids if p and p.strip()]
+        if not ids:
             return {}
         with self.db.cursor() as cur:
-            cur.execute(f"SELECT {_PRODUCT_COLUMNS} FROM products WHERE product_id = ANY(%s)", (list(product_ids),))
-            return {r[0]: _row_to_product(r) for r in cur.fetchall()}
+            cur.execute(f"SELECT {_COLUMNS} FROM products WHERE product_id = ANY(%s)", (ids,))
+            return {r[0]: _product(r) for r in cur.fetchall()}
 
-    # ---------------------------------------------------------------- retrieval
-    def dense_search(self, vector: Sequence[float], limit: int) -> List[str]:
-        """HNSW candidate generation, then exact shared cosine ranking of the candidates."""
+    def search(self, query: str, query_vector: Sequence[float], limit: int) -> List[Tuple[Product, str]]:
+        """
+        Returns (product, match) pairs, best first. ``match`` is 'id' (exact product ID), 'similar_id'
+        (likely typo of a product ID) or 'relevant' (hybrid dense + full-text ranking).
+        """
+        results: List[Tuple[Product, str]] = []
+        seen: set[str] = set()
+        candidates = id_candidates(query)
         with self.db.cursor() as cur:
-            cur.execute(
-                "SELECT product_id, embedding::text FROM products WHERE embedding IS NOT NULL "
-                "ORDER BY embedding <=> %s::vector LIMIT %s",
-                (_vector_literal(vector), max(limit * 2, _DENSE_CANDIDATES)),
-            )
-            rows = cur.fetchall()
-        if not rows:
-            return []
-        ids = [r[0] for r in rows]
-        matrix = normalize_rows(np.array([json.loads(r[1]) for r in rows], dtype=np.float32))
-        return rank_by_cosine(ids, matrix, vector, limit)
+            if candidates:
+                cur.execute(f"SELECT {_COLUMNS} FROM products WHERE product_id = ANY(%s)", (candidates,))
+                exact = {r[0]: _product(r) for r in cur.fetchall()}
+                for token in candidates:
+                    if token in exact:
+                        results.append((exact[token], "id"))
+                        seen.add(token)
+                        continue
+                    cur.execute(
+                        f"""SELECT {_COLUMNS} FROM products
+                            WHERE product_id %% %s AND similarity(product_id, %s) >= %s
+                            ORDER BY similarity(product_id, %s) DESC, product_id LIMIT 1""",
+                        (token, token, _ID_SIMILARITY, token),
+                    )
+                    row = cur.fetchone()
+                    if row and row[0] not in seen:
+                        results.append((_product(row), "similar_id"))
+                        seen.add(row[0])
 
-    def lexical_search(self, text: str, limit: int) -> List[str]:
-        query = _or_tsquery(text)
-        if query is None:
-            return []
-        with self.db.cursor() as cur:
-            cur.execute(
-                f"""
-                SELECT {_PRODUCT_COLUMNS} FROM products, to_tsquery('english', %s) AS q
-                WHERE search_tsv @@ q
-                ORDER BY ts_rank_cd(search_tsv, q) DESC, product_id
-                LIMIT %s
-                """,
-                (query, max(limit * 5, _LEXICAL_CANDIDATES)),
-            )
-            docs = [(r[0], _row_to_product(r).embedding_text()) for r in cur.fetchall()]
-        return [pid for pid, _ in bm25.rank(text, docs, self._corpus_stats(), limit)]
-
-    def sku_candidates(self, token: str, limit: int) -> List[str]:
-        with self.db.cursor() as cur:
-            cur.execute(
-                """
-                SELECT product_id FROM products
-                WHERE product_id = %s OR product_id %% %s
-                ORDER BY similarity(product_id, %s) DESC, product_id
-                LIMIT %s
-                """,
-                (token, token, token, limit),
-            )
-            return [r[0] for r in cur.fetchall()]
-
-    def name_candidates(self, text: str, limit: int) -> List[Product]:
-        query = _or_tsquery(text)
-        if query is None:
-            return []
-        with self.db.cursor() as cur:
+            pool = max(limit * 4, 20)
+            tsquery = _or_tsquery(query)
             cur.execute(
                 f"""
-                SELECT {_PRODUCT_COLUMNS} FROM products, to_tsquery('english', %s) AS q
-                WHERE name_tsv @@ q
-                ORDER BY ts_rank_cd(name_tsv, q) DESC, product_id
-                LIMIT %s
+                WITH dense AS (
+                    SELECT product_id, row_number() OVER (ORDER BY distance, product_id) AS rank FROM (
+                        SELECT product_id, embedding <=> %(vec)s::vector AS distance FROM products
+                        WHERE embedding IS NOT NULL
+                        ORDER BY embedding <=> %(vec)s::vector LIMIT %(pool)s
+                    ) d
+                ),
+                lexical AS (
+                    SELECT product_id, row_number() OVER (ORDER BY score DESC, product_id) AS rank FROM (
+                        SELECT product_id, ts_rank_cd(search_tsv, q) AS score
+                        FROM products, to_tsquery('english', %(tsq)s) AS q
+                        WHERE %(tsq)s <> '' AND search_tsv @@ q
+                        ORDER BY score DESC LIMIT %(pool)s
+                    ) l
+                ),
+                fused AS (
+                    SELECT product_id, sum(1.0 / (%(k)s + rank)) AS score
+                    FROM (SELECT * FROM dense UNION ALL SELECT * FROM lexical) u
+                    GROUP BY product_id
+                )
+                SELECT {", ".join("p." + c.strip() for c in _COLUMNS.split(","))}
+                FROM fused JOIN products p USING (product_id)
+                WHERE NOT (p.product_id = ANY(%(seen)s))
+                ORDER BY fused.score DESC, p.product_id
+                LIMIT %(limit)s
                 """,
-                (query, limit),
+                {
+                    "vec": _vector(query_vector),
+                    "pool": pool,
+                    "tsq": tsquery or "",
+                    "k": _RRF_K,
+                    "seen": list(seen) or [""],
+                    "limit": max(0, limit - len(results)),
+                },
             )
-            return [_row_to_product(r) for r in cur.fetchall()]
+            results.extend((_product(r), "relevant") for r in cur.fetchall())
+        return results[: max(limit, len(seen))]
 
-    # ------------------------------------------------------------ orders/audit
-    @staticmethod
-    def _claim(cur: Any, email_id: str) -> bool:
-        """Returns True if newly claimed, False if resuming; raises if already processed."""
-        cur.execute(
-            "INSERT INTO emails (email_id, status) VALUES (%s, 'processing') "
-            "ON CONFLICT (email_id) DO NOTHING RETURNING email_id",
-            (email_id,),
-        )
-        if cur.fetchone() is not None:
-            return True
-        cur.execute("SELECT outcome IS NOT NULL FROM emails WHERE email_id = %s FOR UPDATE", (email_id,))
-        row = cur.fetchone()
-        if row and row[0]:
-            raise DuplicateEmailError(email_id)
-        return False
+    # -------------------------------------------------------- emails & orders
+    def claim_email(self, email_id: str) -> None:
+        """Marks the email as processing. Raises DuplicateEmailError if it already has a final outcome."""
+        with self.db.cursor() as cur:
+            cur.execute(
+                "INSERT INTO emails (email_id, status) VALUES (%s, 'processing') "
+                "ON CONFLICT (email_id) DO NOTHING RETURNING email_id",
+                (email_id,),
+            )
+            if cur.fetchone() is not None:
+                return
+            cur.execute("SELECT status FROM emails WHERE email_id = %s FOR UPDATE", (email_id,))
+            row = cur.fetchone()
+            if row and row[0] in {s.value for s in EmailStatus if s.is_final}:
+                raise DuplicateEmailError(email_id)
+            cur.execute("UPDATE emails SET status = 'processing' WHERE email_id = %s", (email_id,))
+
+    def reserve(self, email_id: str, items: Sequence[ReservationRequest]) -> List[OrderLine]:
+        """Atomically reserves stock for ``items``. Lines already reserved for this email are returned as-is."""
+        ids = sorted({i.product_id for i in items})
+        with self.db.cursor() as cur:
+            cur.execute(
+                f"SELECT {_COLUMNS} FROM products WHERE product_id = ANY(%s) ORDER BY product_id FOR UPDATE", (ids,)
+            )
+            locked = {r[0]: _product(r) for r in cur.fetchall()}
+            missing = [pid for pid in ids if pid not in locked]
+            if missing:
+                raise UnknownProductError(f"unknown product IDs: {missing}")
+            existing = {line.product_id: line for line in self._lines(cur, email_id)}
+            cur.execute("SELECT coalesce(max(line_no), 0) FROM order_lines WHERE email_id = %s", (email_id,))
+            next_no = int(cur.fetchone()[0]) + 1  # type: ignore[index]
+
+            result: List[OrderLine] = []
+            for item in items:
+                if item.product_id in existing:
+                    result.append(existing[item.product_id])
+                    continue
+                product = locked[item.product_id]
+                line, new_stock = decide_reservation(item, product)
+                if new_stock != product.stock:
+                    cur.execute("UPDATE products SET stock = %s WHERE product_id = %s", (new_stock, product.product_id))
+                    product.stock = new_stock
+                cur.execute(
+                    "INSERT INTO order_lines (email_id, line_no, product_id, product_name, requested_quantity, "
+                    "fulfilled_quantity, status, remaining_stock) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+                    (
+                        email_id,
+                        next_no,
+                        line.product_id,
+                        line.product_name,
+                        line.requested_quantity,
+                        line.fulfilled_quantity,
+                        line.status,
+                        line.remaining_stock,
+                    ),
+                )
+                next_no += 1
+                existing[line.product_id] = line
+                result.append(line)
+            return result
 
     @staticmethod
-    def _load_lines(cur: Any, email_id: str) -> List[OrderLine]:
+    def _lines(cur: Any, email_id: str) -> List[OrderLine]:
         cur.execute(
             "SELECT product_id, product_name, requested_quantity, fulfilled_quantity, status, remaining_stock "
             "FROM order_lines WHERE email_id = %s ORDER BY line_no",
@@ -246,65 +298,23 @@ class PostgresStore:
         )
         return [OrderLine(*row) for row in cur.fetchall()]
 
-    def commit_order(self, email_id: str, items: Sequence[RequestedItem]) -> List[OrderLine]:
+    def order_lines(self, email_id: str) -> List[OrderLine]:
         with self.db.cursor() as cur:
-            if not self._claim(cur, email_id):
-                return self._load_lines(cur, email_id)
-
-            product_ids = sorted({item.product_id for item in items})
-            cur.execute(
-                f"SELECT {_PRODUCT_COLUMNS} FROM products WHERE product_id = ANY(%s) ORDER BY product_id FOR UPDATE",
-                (product_ids,),
-            )
-            locked = {r[0]: _row_to_product(r) for r in cur.fetchall()}
-            lines: List[OrderLine] = []
-            for item in items:
-                product = locked.get(item.product_id)
-                if product is None:
-                    raise KeyError(f"Unknown product {item.product_id}")
-                line, new_stock = decide_reservation(item, product)
-                if new_stock != product.stock:
-                    cur.execute("UPDATE products SET stock = %s WHERE product_id = %s", (new_stock, product.product_id))
-                    product.stock = new_stock
-                lines.append(line)
-            if lines:
-                execute_values(
-                    cur,
-                    "INSERT INTO order_lines (email_id, line_no, product_id, product_name, requested_quantity, "
-                    "fulfilled_quantity, status, remaining_stock) VALUES %s",
-                    [
-                        (
-                            email_id,
-                            idx,
-                            ln.product_id,
-                            ln.product_name,
-                            ln.requested_quantity,
-                            ln.fulfilled_quantity,
-                            ln.status,
-                            ln.remaining_stock,
-                        )
-                        for idx, ln in enumerate(lines, 1)
-                    ],
-                )
-            return lines
-
-    def claim_email(self, email_id: str) -> None:
-        with self.db.cursor() as cur:
-            self._claim(cur, email_id)
+            return self._lines(cur, email_id)
 
     def save_outcome(self, outcome: EmailOutcome) -> None:
         payload = outcome.to_dict()
-        payload.pop("lines", None)  # lines live in order_lines
+        payload.pop("lines", None)  # stored in order_lines
+        payload.pop("duplicate", None)
         with self.db.cursor() as cur:
             cur.execute(
                 """
-                INSERT INTO emails (email_id, category, status, degraded, outcome, processed_at)
-                VALUES (%s, %s, %s, %s, %s::jsonb, now())
-                ON CONFLICT (email_id) DO UPDATE SET
-                    category = EXCLUDED.category, status = EXCLUDED.status, degraded = EXCLUDED.degraded,
+                INSERT INTO emails (email_id, category, status, outcome, processed_at)
+                VALUES (%s, %s, %s, %s::jsonb, now())
+                ON CONFLICT (email_id) DO UPDATE SET category = EXCLUDED.category, status = EXCLUDED.status,
                     outcome = EXCLUDED.outcome, processed_at = EXCLUDED.processed_at
                 """,
-                (outcome.email_id, outcome.category, outcome.status.value, outcome.degraded, json.dumps(payload)),
+                (outcome.email_id, outcome.category, outcome.status.value, json.dumps(payload, default=str)),
             )
 
     def get_outcome(self, email_id: str) -> Optional[EmailOutcome]:
@@ -314,12 +324,13 @@ class PostgresStore:
             if row is None:
                 return None
             data = dict(row[0])
-            data["lines"] = [vars(line) for line in self._load_lines(cur, email_id)]
+            data["lines"] = [vars(line) for line in self._lines(cur, email_id)]
             return EmailOutcome.from_dict(data)
 
     def reset_operations(self) -> None:
+        """Clears processed emails, order lines and the SQL audit log (stock is reset by catalog sync)."""
         with self.db.cursor() as cur:
-            cur.execute("TRUNCATE order_lines, emails")
+            cur.execute("TRUNCATE order_lines, emails, sql_audit")
 
     def close(self) -> None:
         self.db.close()

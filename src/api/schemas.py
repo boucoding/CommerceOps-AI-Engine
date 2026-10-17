@@ -43,18 +43,17 @@ class UsageOut(BaseModel):
 
 class OutcomeOut(BaseModel):
     email_id: str
-    category: str
     status: str
-    response: str
-    confidence: Optional[float]
-    language: str
+    category: Optional[str]
+    response: Optional[str]
+    language: Optional[str]
     customer_name: Optional[str]
     lines: List[OrderLineOut]
-    unresolved_mentions: List[str]
+    plan: Optional[Dict[str, Any]]
+    trace: List[Dict[str, Any]]
     context_product_ids: List[str]
     guardrail_flags: List[str]
-    degraded: bool
-    degraded_reasons: List[str]
+    error: Optional[str]
     usage: UsageOut
     latency_ms: int
     duplicate: bool
@@ -83,6 +82,9 @@ class ProductOut(BaseModel):
         return cls.model_validate(product.to_dict())
 
 
+class SearchHit(ProductOut):
+    match: str
+
+
 class SearchOut(BaseModel):
-    mentioned: List[ProductOut]
-    related: List[ProductOut]
+    results: List[SearchHit]

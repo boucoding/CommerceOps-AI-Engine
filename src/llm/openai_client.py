@@ -1,5 +1,6 @@
 """
-OpenAI implementation of the LLM interface (Structured Outputs + embeddings).
+OpenAI implementation: Structured Outputs for planning, strict function calling for
+execution, and embeddings.
 """
 
 from __future__ import annotations
@@ -10,10 +11,7 @@ import openai
 from openai import OpenAI
 
 from src.config import Settings
-from src.llm.base import LLMError, LLMResult, LLMUsage, SchemaT
-from src.utils.logger import get_logger
-
-logger = get_logger("llm.openai")
+from src.llm.base import AssistantTurn, LLMError, LLMResult, LLMUsage, SchemaT, ToolCall
 
 _EMBED_BATCH = 256
 
@@ -22,10 +20,7 @@ def _usage(response: Any) -> LLMUsage:
     usage = getattr(response, "usage", None)
     if usage is None:
         return LLMUsage()
-    return LLMUsage(
-        prompt_tokens=int(getattr(usage, "prompt_tokens", 0) or 0),
-        completion_tokens=int(getattr(usage, "completion_tokens", 0) or 0),
-    )
+    return LLMUsage(int(getattr(usage, "prompt_tokens", 0) or 0), int(getattr(usage, "completion_tokens", 0) or 0))
 
 
 class OpenAILLMClient:
@@ -37,50 +32,50 @@ class OpenAILLMClient:
             api_key=settings.OPENAI_API_KEY.get_secret_value(),
             base_url=settings.OPENAI_BASE_URL,
             timeout=settings.LLM_TIMEOUT_SECONDS,
-            max_retries=settings.LLM_MAX_RETRIES,
+            max_retries=settings.LLM_MAX_RETRIES,  # SDK retries 429/5xx/timeouts with exponential backoff
         )
 
     def _sampling(self) -> Dict[str, Any]:
-        if self.settings.LLM_TEMPERATURE is None:
-            return {}
-        return {"temperature": self.settings.LLM_TEMPERATURE}
-
-    @staticmethod
-    def _messages(system: str, user: str) -> List[Dict[str, str]]:
-        return [{"role": "system", "content": system}, {"role": "user", "content": user}]
+        return {} if self.settings.LLM_TEMPERATURE is None else {"temperature": self.settings.LLM_TEMPERATURE}
 
     def parse(self, *, task: str, system: str, user: str, schema: Type[SchemaT]) -> LLMResult[SchemaT]:
         try:
             response = self._client.chat.completions.parse(
                 model=self.model,
-                messages=self._messages(system, user),  # type: ignore[arg-type]
+                messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
                 response_format=schema,
                 **self._sampling(),
             )
         except openai.OpenAIError as exc:
             raise LLMError(f"{task}: {type(exc).__name__}: {exc}") from exc
-
         message = response.choices[0].message
         if getattr(message, "refusal", None):
             raise LLMError(f"{task}: model refused: {message.refusal}")
         if message.parsed is None:
             raise LLMError(f"{task}: empty structured output")
-        return LLMResult(value=message.parsed, usage=_usage(response))
+        return LLMResult(message.parsed, _usage(response))
 
-    def complete(self, *, task: str, system: str, user: str) -> LLMResult[str]:
+    def chat(
+        self, *, task: str, messages: List[Dict[str, Any]], tools: List[Dict[str, Any]]
+    ) -> LLMResult[AssistantTurn]:
         try:
-            response = self._client.chat.completions.create(
+            response = self._client.chat.completions.create(  # type: ignore[call-overload]
                 model=self.model,
-                messages=self._messages(system, user),  # type: ignore[arg-type]
+                messages=messages,
+                tools=tools,
+                tool_choice="required",  # every turn must act; the run ends via the submit_reply tool
+                parallel_tool_calls=False,  # one tool per turn keeps traces and permission checks simple
                 **self._sampling(),
             )
         except openai.OpenAIError as exc:
             raise LLMError(f"{task}: {type(exc).__name__}: {exc}") from exc
-
-        content = (response.choices[0].message.content or "").strip()
-        if not content:
-            raise LLMError(f"{task}: empty completion")
-        return LLMResult(value=content, usage=_usage(response))
+        message = response.choices[0].message
+        calls = [
+            ToolCall(c.id, c.function.name, c.function.arguments)
+            for c in (message.tool_calls or [])
+            if getattr(c, "function", None) is not None
+        ]
+        return LLMResult(AssistantTurn(message.content, calls), _usage(response))
 
     def embed(self, texts: List[str]) -> List[List[float]]:
         vectors: List[List[float]] = []

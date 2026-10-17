@@ -1,4 +1,4 @@
-from src.pipeline.guardrails import PIIScrubber, PromptInjectionGuard, SecurityGuardrail
+from src.safety.guardrails import PIIScrubber, PromptInjectionGuard, SecurityGuardrail
 
 
 def test_masks_email_phone_and_restores_them():
