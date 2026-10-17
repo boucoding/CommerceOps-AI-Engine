@@ -2,7 +2,7 @@
 name = "commerceops-ai-engine"
 version = "2.0.0"
 description = "LLM-assisted order fulfilment and customer-inquiry automation for e-commerce email."
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 license = { text = "CC-BY-NC-4.0" }
 authors = [{ name = "boucoding" }]
 
@@ -18,14 +18,14 @@ omit = ["src/cli.py"]
 
 [tool.ruff]
 line-length = 120
-target-version = "py311"
+target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "SIM", "BLE"]
 ignore = ["UP007", "UP045", "UP006", "UP035"]
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.12"
 packages = ["src"]
 ignore_missing_imports = true
 warn_unused_ignores = true

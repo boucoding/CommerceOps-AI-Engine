@@ -1,3 +1,4 @@
+import os
 from types import SimpleNamespace
 
 import openai
@@ -91,6 +92,7 @@ def test_record_then_replay_roundtrip(tmp_path):
     recorder.complete(task="reply", system="s", user="Email ID: E7\nbody")
     vectors = recorder.embed(["catalog text"])
     assert recorder.save() == 2
+    assert os.stat(path).st_mode & 0o777 == 0o644
 
     replay = ReplayLLMClient(path, dimensions=1536)
     assert replay.source == "recorded" and replay.model == "scripted-model"
@@ -112,3 +114,15 @@ def test_factory_modes(tmp_path):
     missing = make_settings(LLM_MODE=LLMMode.AUTO, REPLAY_FIXTURES_PATH=str(tmp_path / "none.json"))
     assert missing.resolved_llm_mode() == LLMMode.OFFLINE
     assert make_settings(LLM_MODE=LLMMode.AUTO, OPENAI_API_KEY="sk-real").resolved_llm_mode() == LLMMode.LIVE
+
+
+def test_env_example_loads_with_blank_values(monkeypatch):
+    from src.config import Settings, StorageBackend
+
+    for name in Settings.model_fields:  # real environment variables would take precedence over the file
+        monkeypatch.delenv(name, raising=False)
+    settings = Settings(_env_file=".env.example")  # type: ignore[call-arg]
+    assert settings.LLM_MODEL == "gpt-6-luna" and settings.LLM_TEMPERATURE is None
+    assert settings.OPENAI_BASE_URL is None and settings.API_KEY is None and not settings.has_openai_key
+    assert settings.STORAGE_BACKEND == StorageBackend.MEMORY
+    assert settings.database_dsn.startswith("postgresql://commerceops:change-me")

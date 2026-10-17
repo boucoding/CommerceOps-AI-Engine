@@ -11,11 +11,10 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass, field
-from typing import Generic, List, Optional, Protocol, Type, TypeVar
+from typing import List, Optional, Protocol, Type, TypeVar
 
 from pydantic import BaseModel
 
-T = TypeVar("T")
 SchemaT = TypeVar("SchemaT", bound=BaseModel)
 
 
@@ -34,7 +33,7 @@ class LLMUsage:
 
 
 @dataclass
-class LLMResult(Generic[T]):
+class LLMResult[T]:
     value: T
     usage: LLMUsage = field(default_factory=LLMUsage)
     replayed: bool = False

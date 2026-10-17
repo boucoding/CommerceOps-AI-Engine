@@ -37,7 +37,8 @@ class StorageBackend(StrEnum):
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    # Blank values (e.g. "LLM_TEMPERATURE=" in .env) fall back to the defaults below.
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore", env_ignore_empty=True)
 
     # Application
     APP_NAME: str = "CommerceOps AI Engine"

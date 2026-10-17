@@ -152,5 +152,6 @@ class RecordingLLMClient:
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
             json.dump(payload, fh, ensure_ascii=False, indent=1)
             fh.write("\n")
+        os.chmod(tmp, 0o644)  # mkstemp creates 0600; fixtures must be readable by other users (e.g. containers)
         os.replace(tmp, target)
         return len(self._responses)
