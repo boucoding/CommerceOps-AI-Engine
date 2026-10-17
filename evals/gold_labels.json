@@ -1,0 +1,28 @@
+{
+  "description": "Hand-labelled expectations for data/inbound_customer_emails.csv processed in file order against data/catalog_products.csv with fresh stock. Order lines follow the all-or-nothing stock rule.",
+  "emails": {
+    "E001": {"category": "order request", "customer_name": null, "lines": [["LTH0976", 4, "created"]], "note": "all remaining stock (4)"},
+    "E002": {"category": "order request", "customer_name": "Jessica", "lines": [["VBT2345", 1, "created"]], "note": "past purchases are noise"},
+    "E003": {"category": "product inquiry", "customer_name": "David", "context": ["LTH1098", "LTH5432"]},
+    "E004": {"category": "order request", "customer_name": null, "lines": [["SFT1098", 4, "created"]], "note": "range 'three to four' -> 4"},
+    "E005": {"category": "product inquiry", "customer_name": null, "context": ["CSH1098"]},
+    "E006": {"category": "product inquiry", "customer_name": "Sam", "context": ["CBT8901"], "note": "purchase postponed to Fall"},
+    "E007": {"category": "order request", "customer_name": "Liz", "lines": [["CLF2109", 5, "out of stock"], ["FZZ1098", 2, "created"]]},
+    "E008": {"category": "order request", "customer_name": null, "lines": [["VSC6789", 1, "created"]], "note": "named by description, no SKU"},
+    "E009": {"category": "product inquiry", "customer_name": null, "language": "es", "context": ["CHN0987"], "note": "Spanish; SKU typo DHN0987 -> CHN0987"},
+    "E010": {"category": "order request", "customer_name": null, "lines": [["RSG8901", 1, "created"]]},
+    "E011": {"category": "product inquiry", "customer_name": null, "context": ["RSG8901"]},
+    "E012": {"category": "product inquiry", "customer_name": null, "note": "rambling; Emily is the sender's wife"},
+    "E013": {"category": "order request", "customer_name": "Marco", "lines": [["SLD7654", 1, "created"]]},
+    "E014": {"category": "order request", "customer_name": "Johny", "lines": [["SWL2345", 1, "created"]]},
+    "E015": {"category": "product inquiry", "customer_name": null, "note": "Thomas is the sender's husband"},
+    "E016": {"category": "product inquiry", "customer_name": "Claire"},
+    "E017": {"category": "order request", "customer_name": null, "lines": [], "status": "needs_clarification", "note": "no identifiable product"},
+    "E018": {"category": "order request", "customer_name": null, "lines": [["RSG8901", 2, "out of stock"]], "note": "E010 took the last unit"},
+    "E019": {"category": "order request", "customer_name": null, "lines": [["CBT8901", 1, "created"]], "note": "[CBT 89 01]; slippers are a past purchase, sunglasses postponed"},
+    "E020": {"category": "product inquiry", "customer_name": "Antonio", "context": ["SDE2345"]},
+    "E021": {"category": "product inquiry", "customer_name": null, "note": "listed SKUs are past purchases; asks for winter hats"},
+    "E022": {"category": "order request", "customer_name": "Monica", "lines": [], "status": "needs_clarification", "note": "vague 'geometric bags', quantity 3"},
+    "E023": {"category": "order request", "customer_name": null, "lines": [["CGN2345", 5, "out of stock"]], "note": "'all 5 of them'; only 2 in stock"}
+  }
+}

@@ -1,0 +1,830 @@
+{
+ "version": 1,
+ "source": "hand-authored",
+ "model": "gpt-6-luna",
+ "embedding_model": "local:hash-v1",
+ "created_at": "2026-10-17T08:31:28+00:00",
+ "responses": {
+  "00698f6e53d2958c2253f8f594a77fbf515b01e7dab9d1d96268edccbf68d087": {
+   "task": "classify",
+   "email_id": "E001",
+   "output": {
+    "category": "order request",
+    "confidence": 0.95,
+    "customer_name": null,
+    "language": "en",
+    "reasoning": "Customer wants to order all remaining Leather Bifold Wallets now."
+   },
+   "usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0
+   }
+  },
+  "dc63320779bebfeb57e53099446732e7b9cf5d5bb1fd8b6b3025c2e9b49acb5a": {
+   "task": "extract_order",
+   "email_id": "E001",
+   "output": {
+    "items": [
+     {
+      "product_id": "LTH0976",
+      "product_name": "Leather Bifold Wallets",
+      "quantity": null,
+      "wants_all_available": true,
+      "is_active_order": true
+     }
+    ]
+   },
+   "usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0
+   }
+  },
+  "80fb809b0592b3aec5027b71c12e416c51c4d75a196684afbace22fc5208ee27": {
+   "task": "order_reply",
+   "email_id": "E001",
+   "output": "Thank you for thinking of us for your new boutique! We have reserved all 4 remaining Leather Bifold Wallets (LTH0976) for you, and your order is now being prepared for shipment.\n\nWe hope they find happy owners in your shop. If you would like to discuss larger quantities for future restocks, simply reply to this email.",
+   "usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0
+   }
+  },
+  "7beb931eac6341c09b4935fdfcfeb227e3d88b7da85551fb56a53dc4d5dba2e1": {
+   "task": "classify",
+   "email_id": "E002",
+   "output": {
+    "category": "order request",
+    "confidence": 0.95,
+    "customer_name": "Jessica",
+    "language": "en",
+    "reasoning": "Customer is buying the Vibrant Tote now; tote anecdotes are background."
+   },
+   "usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0
+   }
+  },
+  "83921e2c0155b0759f7cd41f69795cdc2fbd280d48ef37923070564e787aa6a9": {
+   "task": "extract_order",
+   "email_id": "E002",
+   "output": {
+    "items": [
+     {
+      "product_id": "VBT2345",
+      "product_name": "Vibrant Tote",
+      "quantity": 1,
+      "wants_all_available": false,
+      "is_active_order": true
+     }
+    ]
+   },
+   "usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0
+   }
+  },
+  "57dfdb30b9ca879d68411819ac7a5f8b8ad16044342d9c1fb85dac11346cdcc9": {
+   "task": "order_reply",
+   "email_id": "E002",
+   "output": "Thank you for your order! We're happy to confirm 1 Vibrant Tote (VBT2345); it is now being prepared for shipment.\n\nIt sounds like it will be in excellent company with your straw and nylon totes. Enjoy carrying it!",
+   "usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0
+   }
+  },
+  "31973526f675bf2012e5db3b9fa85b97982e02b842061b912937f33d112b26a2": {
+   "task": "classify",
+   "email_id": "E003",
+   "output": {
+    "category": "product inquiry",
+    "confidence": 0.97,
+    "customer_name": "David",
+    "language": "en",
+    "reasoning": "Customer asks for a comparison between two bags."
+   },
+   "usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0
+   }
+  },
+  "e414b62802e23bb17c53b1104f2037a5289b0a1e3b88a6c6de766d216db1552a": {
+   "task": "inquiry_reply",
+   "email_id": "E003",
+   "output": "Both are excellent choices for carrying a laptop and documents to work:\n\n- Leather Backpack (LTH1098), $43.99, all seasons: multiple compartments, a padded laptop sleeve and adjustable straps. It offers the most built-in organization and protection for your laptop.\n- Leather Tote (LTH5432), $28.00, all seasons: full-grain leather with a spacious interior and multiple pockets. It has a more polished look but no dedicated laptop sleeve is listed.\n\nIf organization and laptop protection come first, the Leather Backpack is the stronger fit. If you prefer a shoulder-carry style, the Leather Messenger Bag (LTH2109, $37.99) is a good middle ground with a spacious main compartment and multiple pockets.",
+   "usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0
+   }
+  },
+  "573db045dcb40fc9f61f4bacd103f2d67fe13474509fb6bbbf46c3b627d232b6": {
+   "task": "classify",
+   "email_id": "E004",
+   "output": {
+    "category": "order request",
+    "confidence": 0.95,
+    "customer_name": null,
+    "language": "en",
+    "reasoning": "Customer orders three to four Infinity Scarves."
+   },
+   "usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0
+   }
+  },
+  "c6e226aba3a0120a2c7db19eea39c1b2f47f5b3c347aaa038a5e49064fc3b8d0": {
+   "task": "extract_order",
+   "email_id": "E004",
+   "output": {
+    "items": [
+     {
+      "product_id": "SFT1098",
+      "product_name": "Infinity Scarves",
+      "quantity": 4,
+      "wants_all_available": false,
+      "is_active_order": true
+     }
+    ]
+   },
+   "usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0
+   }
+  },
+  "69fff4ad573f6da5bcbe51a92190fbbc5ecd40f38b8e388e62eb4f41752cd02f": {
+   "task": "order_reply",
+   "email_id": "E004",
+   "output": "Thank you for your order! We're delighted to confirm 4 Infinity Scarves (SFT1098), and they are now being prepared for shipment.\n\nWhat a lovely addition to your wife's collection.",
+   "usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0
+   }
+  },
+  "c2f05923fe005d6b3c5f1872309a3e4b20be79830558074122ad625a4c9bb6ee": {
+   "task": "classify",
+   "email_id": "E005",
+   "output": {
+    "category": "product inquiry",
+    "confidence": 0.96,
+    "customer_name": null,
+    "language": "en",
+    "reasoning": "Questions about the Cozy Shawl's material and use."
+   },
+   "usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0
+   }
+  },
+  "f9ed13a052007e18e236c09d8d08d0a57f85ea8f50ae3df6ddff9852eccaf6d4": {
+   "task": "inquiry_reply",
+   "email_id": "E005",
+   "output": "The Cozy Shawl (CSH1098, $22.00, Fall and Winter) is knitted from soft, warm yarn and is designed to be worn as a shawl, a scarf or a lightweight blanket. That makes it well suited as a light lap blanket for chilly evenings. It is not described as a heavy, thick throw, so for a warmer, more substantial feel it works best layered.\n\nOur catalog doesn't list the exact fibre content, so we can't promise a specific material. It is in stock and would make a thoughtful gift for your grandmother.",
+   "usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0
+   }
+  },
+  "9534868c71299079f8b79eb12b649369c701a658f7f10d457891443b973068c0": {
+   "task": "classify",
+   "email_id": "E006",
+   "output": {
+    "category": "product inquiry",
+    "confidence": 0.93,
+    "customer_name": "Sam",
+    "language": "en",
+    "reasoning": "Purchase explicitly postponed until Fall."
+   },
+   "usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0
+   }
+  },
+  "7b597f75d657bb4afd0acdf51da3847984299c0d2a998c54ba1266dbdf5b4742": {
+   "task": "inquiry_reply",
+   "email_id": "E006",
+   "output": "Thank you for letting us know you have your eye on the Chelsea Boots (CBT8901). They are $65.00, made for Fall and Winter, with sleek leather construction, elastic side panels and a sturdy lug sole, ideal for the colder months.\n\nThey are currently in stock, but quantities are limited, so we can't guarantee availability in the Fall. If you'd like something more rugged for wet weather, the Waterproof Boots (WTR7654, $51.00) have a fleece lining and a lug sole for traction. Just reply when you're ready to order.",
+   "usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0
+   }
+  },
+  "5e81c841e64a95a9873a934611b4d931f5c669f2a5c262ab7b223b3d3f3ab621": {
+   "task": "classify",
+   "email_id": "E007",
+   "output": {
+    "category": "order request",
+    "confidence": 0.95,
+    "customer_name": "Liz",
+    "language": "en",
+    "reasoning": "Customer asks us to send beanies and slippers."
+   },
+   "usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0
+   }
+  },
+  "498b2fd2ec658227e02078c290f4958ee2881a1a983e9b9e8a0719ea2ae0d444": {
+   "task": "extract_order",
+   "email_id": "E007",
+   "output": {
+    "items": [
+     {
+      "product_id": "CLF2109",
+      "product_name": "Cable Knit Beanies",
+      "quantity": 5,
+      "wants_all_available": false,
+      "is_active_order": true
+     },
+     {
+      "product_id": "FZZ1098",
+      "product_name": "Fuzzy Slippers",
+      "quantity": 2,
+      "wants_all_available": false,
+      "is_active_order": true
+     }
+    ]
+   },
+   "usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0
+   }
+  },
+  "1fe854fe47c979745273c769a81898a7a69ba8af9e4f7e8cb926d1b0134fc63e": {
+   "task": "order_reply",
+   "email_id": "E007",
+   "output": "Thank you for your order! Here is where it stands:\n\n- Fuzzy Slippers (FZZ1098) x 2: confirmed and being prepared for shipment.\n- Cable Knit Beanie (CLF2109) x 5: unfortunately we only have 2 in stock, so we couldn't reserve the 5 you asked for and nothing has been charged for them.\n\nFor your gift baskets, the Chunky Knit Beanie (CHN0987, $22.00) or the Infinity Scarf (SFT1098, $28.00) could be lovely alternatives. We'd also be happy to let you know when the Cable Knit Beanie is back in stock.",
+   "usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0
+   }
+  },
+  "3f017cd050a8852ffe687dc2f81d53d820182a427fd6626a194d920021aabc35": {
+   "task": "classify",
+   "email_id": "E008",
+   "output": {
+    "category": "order request",
+    "confidence": 0.95,
+    "customer_name": null,
+    "language": "en",
+    "reasoning": "Customer wants to order one Versatile Scarf."
+   },
+   "usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0
+   }
+  },
+  "75b975afd57af5a56dabd5f7e9a38d9d4cc7d32ba86a532d85d20e0dbe054710": {
+   "task": "extract_order",
+   "email_id": "E008",
+   "output": {
+    "items": [
+     {
+      "product_id": "VSC6789",
+      "product_name": "Versatile Scarves",
+      "quantity": 1,
+      "wants_all_available": false,
+      "is_active_order": true
+     }
+    ]
+   },
+   "usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0
+   }
+  },
+  "c7941efb790742adcd8eb9dd156f24d32e98abe4756a448aa62ed0b533486a05": {
+   "task": "order_reply",
+   "email_id": "E008",
+   "output": "Thank you for your order! We're pleased to confirm 1 Versatile Scarf (VSC6789), the lightweight piece that can be worn as a scarf, shawl or headwrap. It is now being prepared for shipment.",
+   "usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0
+   }
+  },
+  "b9e5bc2702864c98dddfff7ae3dd07cc941db447f7158e7e52cd81cd57da4ea2": {
+   "task": "classify",
+   "email_id": "E009",
+   "output": {
+    "category": "product inquiry",
+    "confidence": 0.95,
+    "customer_name": null,
+    "language": "es",
+    "reasoning": "Spanish question about material and warmth of a beanie."
+   },
+   "usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0
+   }
+  },
+  "f8ce696957305c63f4802736864989484a154178b7af8cbb76cce8328a43c68c": {
+   "task": "inquiry_reply",
+   "email_id": "E009",
+   "output": "Gracias por tu pregunta sobre el Gorro de punto grueso (Chunky Knit Beanie, CHN0987). Está tejido con un hilo grueso y acogedor, y nuestro catálogo no especifica la composición exacta de la fibra. Es una prenda pensada para otoño e invierno, con un ajuste holgado y amplio que mantiene la cabeza bien abrigada, así que es una buena opción para el frío.\n\nCuesta $22.00 y actualmente está disponible. Si buscas completar el conjunto, el Cozy Sweater (CSW6789, $48.00) también es ideal para otoño e invierno.",
+   "usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0
+   }
+  },
+  "1e9d194c1bd210b8264e6711d7b046848c76b9ae6d5a3e15986c94d85c38ea14": {
+   "task": "classify",
+   "email_id": "E010",
+   "output": {
+    "category": "order request",
+    "confidence": 0.95,
+    "customer_name": null,
+    "language": "en",
+    "reasoning": "Customer orders 1 pair of Retro Sunglasses."
+   },
+   "usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0
+   }
+  },
+  "9e1445a8b016f300675a7ed2170a7688eb2b336db204d951f5e8b4dcec49d93c": {
+   "task": "extract_order",
+   "email_id": "E010",
+   "output": {
+    "items": [
+     {
+      "product_id": "RSG8901",
+      "product_name": "Retro Sunglasses",
+      "quantity": 1,
+      "wants_all_available": false,
+      "is_active_order": true
+     }
+    ]
+   },
+   "usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0
+   }
+  },
+  "d5ce9de11daf010827503a467b4b423e1ea289534c519520f847b012f683e65f": {
+   "task": "order_reply",
+   "email_id": "E010",
+   "output": "Thank you for your order! We're happy to confirm 1 pair of Retro Sunglasses (RSG8901); they are now being prepared for shipment. Enjoy the sunshine!",
+   "usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0
+   }
+  },
+  "af126aea2afafc8190e7ee67a67f8ebc983fbf53238800dd09bc2e2f3cbf6de5": {
+   "task": "classify",
+   "email_id": "E011",
+   "output": {
+    "category": "product inquiry",
+    "confidence": 0.97,
+    "customer_name": null,
+    "language": "en",
+    "reasoning": "Question about the design inspiration of the sunglasses."
+   },
+   "usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0
+   }
+  },
+  "6d4e85a88bac9a827fb92f78337d83b0fbc43bebb21a689037c8d89b3dcc705d": {
+   "task": "inquiry_reply",
+   "email_id": "E011",
+   "output": "Thank you for your curiosity about the Retro Sunglasses (RSG8901, $26.99, Spring and Summer). Our catalog describes them as vintage-inspired shades with a cool, nostalgic vibe, but it doesn't name a specific decade, so we'd rather not guess between the 1950s and 1960s.\n\nIf you enjoy that retro look, the Clog Sandals (CLG4567, $48.00) share the same throwback spirit for spring and summer.",
+   "usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0
+   }
+  },
+  "74935bc7e0d0e090788a14d69e561cd92f7074cc8daf67db9695c47d9cb05ff5": {
+   "task": "classify",
+   "email_id": "E012",
+   "output": {
+    "category": "product inquiry",
+    "confidence": 0.9,
+    "customer_name": null,
+    "language": "en",
+    "reasoning": "Customer asks for messenger bag or briefcase options; the rest is anecdote."
+   },
+   "usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0
+   }
+  },
+  "d83817b100c773f8dde1a9613e8e16d6290ff9b3a4eda3c613bce8ac8a80a2c7": {
+   "task": "inquiry_reply",
+   "email_id": "E012",
+   "output": "Sorry to hear the strap on your briefcase gave out after so much use. Here are some work-friendly options:\n\n- Leather Messenger Bag (LTH2109), $37.99: premium full-grain leather, a spacious main compartment, multiple pockets and an adjustable strap. The closest match to a briefcase-style carry.\n- Leather Tote (LTH5432), $28.00: full-grain leather with a spacious interior and multiple pockets, a slightly more relaxed silhouette.\n- Leather Backpack (LTH1098), $43.99: multiple compartments and a padded laptop sleeve if you carry a laptop.\n\nOur catalog doesn't list exact dimensions, so let us know what size your previous briefcase was and we can help you compare.",
+   "usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0
+   }
+  },
+  "4d2fdad5abeeb5f5a2bb5ca4590dc19177a2c3c079d809154c90ec70c4f64aa8": {
+   "task": "classify",
+   "email_id": "E013",
+   "output": {
+    "category": "order request",
+    "confidence": 0.95,
+    "customer_name": "Marco",
+    "language": "en",
+    "reasoning": "Customer needs to buy a pair of slide sandals now."
+   },
+   "usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0
+   }
+  },
+  "b55ec059b078b2edaf0128f37acf3846f6c6987febc6b4aafcb501768177a179": {
+   "task": "extract_order",
+   "email_id": "E013",
+   "output": {
+    "items": [
+     {
+      "product_id": "SLD7654",
+      "product_name": "slide sandals",
+      "quantity": 1,
+      "wants_all_available": false,
+      "is_active_order": true
+     }
+    ]
+   },
+   "usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0
+   }
+  },
+  "24a9017580084a6eb54308830b90a43319fecde4d04e5e8223423cc7f0b6576d": {
+   "task": "order_reply",
+   "email_id": "E013",
+   "output": "Thank you for your order! We're happy to confirm 1 pair of Slide Sandals (SLD7654) from our Men's Shoes collection; they are now being prepared for shipment, just in time for summer.",
+   "usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0
+   }
+  },
+  "e972b19a6f760e67fbb55e38dd3a87a884433406cd5f15b46118f1c27b9257d0": {
+   "task": "classify",
+   "email_id": "E014",
+   "output": {
+    "category": "order request",
+    "confidence": 0.95,
+    "customer_name": "Johny",
+    "language": "en",
+    "reasoning": "Customer asks us to send 1 Sleek Wallet."
+   },
+   "usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0
+   }
+  },
+  "da9f74875888facd1f4c0b73744e0761bc8eb43a686501d95e3ba5f6bfc2a223": {
+   "task": "extract_order",
+   "email_id": "E014",
+   "output": {
+    "items": [
+     {
+      "product_id": "SWL2345",
+      "product_name": "Sleek Wallet",
+      "quantity": 1,
+      "wants_all_available": false,
+      "is_active_order": true
+     }
+    ]
+   },
+   "usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0
+   }
+  },
+  "42d14753dc49d4d87eaf6f37f979e7a6610311be879a8a72182754e92e62d71a": {
+   "task": "order_reply",
+   "email_id": "E014",
+   "output": "Thank you for your order! We're pleased to confirm 1 Sleek Wallet (SWL2345); it is now being prepared for shipment.",
+   "usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0
+   }
+  },
+  "368b3961168bfcc3c6be73d1c8f5f2f8fcb80bb97eb93f260e6f57c32e2389a1": {
+   "task": "classify",
+   "email_id": "E015",
+   "output": {
+    "category": "product inquiry",
+    "confidence": 0.96,
+    "customer_name": null,
+    "language": "en",
+    "reasoning": "Request for a men's bag recommendation."
+   },
+   "usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0
+   }
+  },
+  "87333f9eb5281514165d62228c46c272c55ebc3ed77895333614a1260eeeab63": {
+   "task": "inquiry_reply",
+   "email_id": "E015",
+   "output": "What a thoughtful anniversary gift. For someone who goes from the office during the week to the trails on weekends, these stand out:\n\n- Leather Backpack (LTH1098), $43.99: premium leather with multiple compartments, a padded laptop sleeve and adjustable straps. Polished enough for work and comfortable for a hike.\n- Leather Messenger Bag (LTH2109), $37.99: full-grain leather, a spacious main compartment and an adjustable strap. A classic office choice.\n- Chic Crossbody (CCB6789), $35.00: compact with multiple compartments and adjustable straps, handy for lighter outdoor days.\n\nFor the best of both worlds, we'd suggest the Leather Backpack.",
+   "usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0
+   }
+  },
+  "18ecb98d4f823ab40f2f372e8d8b343871d7998a3a04bfa2612d8271b5514c43": {
+   "task": "classify",
+   "email_id": "E016",
+   "output": {
+    "category": "product inquiry",
+    "confidence": 0.95,
+    "customer_name": "Claire",
+    "language": "en",
+    "reasoning": "Request for dress and travel bag recommendations."
+   },
+   "usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0
+   }
+  },
+  "f83a56b9711ea08cbb423962ea61dccc9498e2e3accf9f0b1776319ee2bed08f": {
+   "task": "inquiry_reply",
+   "email_id": "E016",
+   "output": "Thank you for sharing what you're looking for. In our current catalog we don't have a dress that matches all your wishes for an outdoor summer wedding: the Ribbed Bodycon Dress (RBB5432, $48.99, Spring to Fall) is form-fitting, and the Sweater Dress (SWT8765, $63.00) is a Winter piece, so neither is quite what you described.\n\nFor travel, the Leather Messenger Bag (LTH2109, $37.99) offers a spacious main compartment, multiple pockets and an adjustable strap.\n\nIf you can share your size and colour preferences, we'd be glad to let you know when new dresses arrive.",
+   "usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0
+   }
+  },
+  "fa744a19af937116b7838ee63e8f34bee0aa406280b9d7194288cf02a3c9f2fe": {
+   "task": "classify",
+   "email_id": "E017",
+   "output": {
+    "category": "order request",
+    "confidence": 0.85,
+    "customer_name": null,
+    "language": "en",
+    "reasoning": "Customer wants to place an order but does not name the item."
+   },
+   "usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0
+   }
+  },
+  "f74f1207fd16a4feda11f7a5fcbb59c67c22b36d8d6f4f246ee55f209266b8a8": {
+   "task": "extract_order",
+   "email_id": "E017",
+   "output": {
+    "items": [
+     {
+      "product_id": null,
+      "product_name": "that popular item",
+      "quantity": 1,
+      "wants_all_available": false,
+      "is_active_order": true
+     }
+    ]
+   },
+   "usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0
+   }
+  },
+  "70c4892b75f7654f7ef7824014bec32a961b7709fe31e1473d635d4785c58494": {
+   "task": "order_reply",
+   "email_id": "E017",
+   "output": "Thank you for wanting to place an order! We'd love to help, but we couldn't tell which item you mean. Could you reply with the product name or its product ID (three letters followed by four digits, as shown on the product page) and how many you'd like? We'll confirm availability right away.",
+   "usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0
+   }
+  },
+  "920d9ff85d39149c445c3def73e1c7336b81bc20067a119503a7c77f4a8d46b1": {
+   "task": "classify",
+   "email_id": "E018",
+   "output": {
+    "category": "order request",
+    "confidence": 0.95,
+    "customer_name": null,
+    "language": "en",
+    "reasoning": "Customer wants to buy 2 pairs of Retro Sunglasses."
+   },
+   "usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0
+   }
+  },
+  "274a620f6733b1dc5c274cf29127231a505e32466590b5423cd3046eda3b15c3": {
+   "task": "extract_order",
+   "email_id": "E018",
+   "output": {
+    "items": [
+     {
+      "product_id": "RSG8901",
+      "product_name": "retro sun glasses",
+      "quantity": 2,
+      "wants_all_available": false,
+      "is_active_order": true
+     }
+    ]
+   },
+   "usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0
+   }
+  },
+  "21d170358f2760f50658f9983172a041ed69ee5cf6be112c2b4c3c84fb97d6ff": {
+   "task": "order_reply",
+   "email_id": "E018",
+   "output": "Thank you for your order. Unfortunately the Retro Sunglasses (RSG8901) are currently out of stock, so we couldn't reserve the 2 pairs you requested and nothing has been charged.\n\nIf you're shopping for summer accessories, the Bucket Hat (BKR0123, $39.99) is available now. We'd be happy to notify you as soon as the Retro Sunglasses are back in stock.",
+   "usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0
+   }
+  },
+  "18d7c16f9c4647b7273ef0a89ad0481bde8494b9045a4e56ef7cc144366c6739": {
+   "task": "classify",
+   "email_id": "E019",
+   "output": {
+    "category": "order request",
+    "confidence": 0.95,
+    "customer_name": null,
+    "language": "en",
+    "reasoning": "Customer buys Chelsea Boots now; slippers were a past purchase and sunglasses are postponed."
+   },
+   "usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0
+   }
+  },
+  "f9477e63e1f2045d6b2c5ba9193715a211b398fd991f76ff10fa30dddeea4dc8": {
+   "task": "extract_order",
+   "email_id": "E019",
+   "output": {
+    "items": [
+     {
+      "product_id": "CBT8901",
+      "product_name": "Chelsea Boots",
+      "quantity": 1,
+      "wants_all_available": false,
+      "is_active_order": true
+     },
+     {
+      "product_id": "FZZ1098",
+      "product_name": "Fuzzy Slippers",
+      "quantity": 1,
+      "wants_all_available": false,
+      "is_active_order": false
+     },
+     {
+      "product_id": "RSG8901",
+      "product_name": "Retro sunglasses",
+      "quantity": 1,
+      "wants_all_available": false,
+      "is_active_order": false
+     }
+    ]
+   },
+   "usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0
+   }
+  },
+  "121576a06fc31ecab3298283777aad8e580210d81d898d8d498dedc3ea267071": {
+   "task": "order_reply",
+   "email_id": "E019",
+   "output": "Thank you so much for the kind words, and we're thrilled you're enjoying your Fuzzy Slippers! We're happy to confirm 1 pair of Chelsea Boots (CBT8901); your order is now being prepared for shipment.",
+   "usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0
+   }
+  },
+  "70ad57eb9f5869b57419aae5cf0d7c66de09afc1fdcfcf2a19a7c0f7160a8109": {
+   "task": "classify",
+   "email_id": "E020",
+   "output": {
+    "category": "product inquiry",
+    "confidence": 0.97,
+    "customer_name": "Antonio",
+    "language": "en",
+    "reasoning": "Price and season question about the Saddle Bag."
+   },
+   "usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0
+   }
+  },
+  "0befeaf8ff40df8ca1c6a1d60d47b3e839f628bee66a1df3aca126fac2d4827c": {
+   "task": "inquiry_reply",
+   "email_id": "E020",
+   "output": "The Saddle Bag (SDE2345) is $39.00 and is an all-season piece, so it's a great choice for spring. It's a compact crossbody with a classic saddle shape and a minimalist design.\n\nPlease note that stock is limited. If you'd like something with a little more boho flair for spring and summer, the Fringe Crossbody (FRP6789, $67.00) is another lovely option.",
+   "usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0
+   }
+  },
+  "95f61172e0c15ea9b69f34e6867ad315cb2016c19c58d5dc85c5571c50b088f7": {
+   "task": "classify",
+   "email_id": "E021",
+   "output": {
+    "category": "product inquiry",
+    "confidence": 0.95,
+    "customer_name": null,
+    "language": "en",
+    "reasoning": "Asks for winter hat recommendations; listed SKUs are past purchases."
+   },
+   "usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0
+   }
+  },
+  "8c2cca8cf38f9dfe8da9c99ab7841fffa5167b2043ac984bb6d492917b944296": {
+   "task": "inquiry_reply",
+   "email_id": "E021",
+   "output": "We're so glad your vintage pieces suit your style! For winter headwear with the same retro feel, we recommend the Corduroy Bucket Hat (CBY6789, $28.00, Fall and Winter), made from soft corduroy with a relaxed bucket silhouette. It would pair nicely with your Corduroy Pants.\n\nIf you'd like more cold-weather vintage flair, the Ski Sweater (SKR3210, $57.00, Winter) has a chunky knit and a bold retro-inspired pattern.",
+   "usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0
+   }
+  },
+  "8eea1d5621f2207df731e34e44b0c73d74d16127d605e77022471da5cac9a51a": {
+   "task": "classify",
+   "email_id": "E022",
+   "output": {
+    "category": "order request",
+    "confidence": 0.88,
+    "customer_name": "Monica",
+    "language": "en",
+    "reasoning": "Customer is ready to order bags but does not identify them."
+   },
+   "usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0
+   }
+  },
+  "4d57822002c61cabe493fda0e4eaf028b9d220caa2dd26273b07a96f1e27b449": {
+   "task": "extract_order",
+   "email_id": "E022",
+   "output": {
+    "items": [
+     {
+      "product_id": null,
+      "product_name": "bags with geometric patterns",
+      "quantity": 3,
+      "wants_all_available": false,
+      "is_active_order": true
+     }
+    ]
+   },
+   "usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0
+   }
+  },
+  "6c09c2a707c20551a085c1668d3002eb7658151cf3eff860173cb3c69a218143": {
+   "task": "order_reply",
+   "email_id": "E022",
+   "output": "Thank you for your enthusiasm, and we're excited you'd like to order! We couldn't match the geometric-pattern bags you saw to a specific product, so we haven't reserved anything yet. Could you reply with the product name or product ID (three letters followed by four digits) and the colour you'd like? We'll confirm availability for your 3 bags right away. Payment is handled securely at checkout, so there's no need to send cash.",
+   "usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0
+   }
+  },
+  "6434cea804e3207638e78e587dd14d68768940cd44ee3a5e927d623ef9e86c23": {
+   "task": "classify",
+   "email_id": "E023",
+   "output": {
+    "category": "order request",
+    "confidence": 0.95,
+    "customer_name": null,
+    "language": "en",
+    "reasoning": "Customer commits to ordering 5 Cargo Pants."
+   },
+   "usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0
+   }
+  },
+  "2141cb09c7f221ee4f689673bfafb74c9658276a247e748137205d449c25d25c": {
+   "task": "extract_order",
+   "email_id": "E023",
+   "output": {
+    "items": [
+     {
+      "product_id": "CGN2345",
+      "product_name": "Cargo Pants",
+      "quantity": 5,
+      "wants_all_available": false,
+      "is_active_order": true
+     }
+    ]
+   },
+   "usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0
+   }
+  },
+  "ba0e7c1203437e911849420ccaee59b8b2facbe4e505de083bba696b8467402b": {
+   "task": "order_reply",
+   "email_id": "E023",
+   "output": "Thank you for your decision. Unfortunately we only have 2 Cargo Pants (CGN2345) in stock, so we couldn't reserve all 5 and nothing has been charged.\n\nIf you'd like a similar style that is available now, consider the Corduroy Pants (CRD3210, $65.00) or the Overalls Jumpsuit (OVR3210, $55.99). We'd also be glad to let you know when the Cargo Pants are restocked.",
+   "usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0
+   }
+  }
+ },
+ "embeddings": {}
+}
