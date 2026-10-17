@@ -1,5 +1,5 @@
 """
-FastAPI service exposing the same pipeline as the batch CLI.
+FastAPI service exposing the same email agent as the batch CLI.
 
 Endpoints
     GET  /healthz                      liveness

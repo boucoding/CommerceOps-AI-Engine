@@ -97,10 +97,10 @@ Interactive API docs: http://localhost:8000/docs
 **Batch** (CSV in → Excel/CSV report out):
 
 ```bash
-docker compose --profile batch run --rm pipeline      # writes ./exports
+docker compose --profile batch run --rm batch         # writes ./exports
 ```
 
-**Local development** (Python 3.12, any PostgreSQL 16 with pgvector):
+**Local development** (Python 3.12, any PostgreSQL 16 with pgvector; connection settings in `.env`):
 
 ```bash
 make dev                  # install dependencies
@@ -108,6 +108,9 @@ make run                  # process data/inbound_customer_emails.csv
 make serve                # API on :8000
 make help                 # all commands
 ```
+
+Database migrations run automatically on startup, and the catalog in `data/catalog_products.csv` is
+synced, re-embedding only products whose text changed. Existing stock levels are kept.
 
 ---
 
@@ -129,6 +132,9 @@ planned?). It also counts tool calls, replans, SQL queries and tokens.
 make record   # run the agent live on the sample emails, save every model exchange (needs a key)
 make eval     # replay that run deterministically and score it (no key, no network)
 ```
+
+Both commands **reset the database** first (processed emails are cleared and stock is restored from the
+catalog file), so point them at a development database.
 
 Recordings are strict: a changed prompt, tool schema or catalog row makes the replay fail rather than
 return an answer to a different question. Once `fixtures/llm_recordings.json` is committed, CI re-scores
@@ -189,15 +195,22 @@ make docker-test          # the same suite inside the Docker stack
 
 ```
 src/
-  agent/      planner, executor loop, tools, prompts, schemas
-  sandbox/    SQL validation and read-only execution
-  safety/     input guardrails (injection, PII) and reply validation
-  llm/        OpenAI client, record/replay
-  storage/    PostgreSQL store, migrations, connection pool
-  api/        FastAPI app
-  cli.py      run | eval | migrate | seed | serve
-evals/        gold labels
-fixtures/     recorded model traffic (created by `make record`)
+  agent/          planner, executor loop, tools, prompts, schemas
+  sandbox/        SQL validation and read-only execution
+  safety/         input guardrails (injection, PII) and reply validation
+  llm/            OpenAI client, record/replay
+  storage/        PostgreSQL store, schema migration, connection pool
+  api/            FastAPI app
+  models/         domain objects (products, emails, order lines, outcomes)
+  utils/          logging, Excel/CSV reporting
+  engine.py       wiring shared by the CLI, API and evaluation
+  catalog.py      catalog sync (embeds only changed products)
+  evaluation.py   gold-label scoring
+  cli.py          run | eval | migrate | seed | serve
+data/             sample catalog (99 products) and inbound emails (23)
+evals/            gold labels
+fixtures/         recorded model traffic (created by `make record`)
+docker/           database init script (creates the test database)
 ```
 
 ---

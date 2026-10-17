@@ -1,6 +1,6 @@
 # CommerceOps AI Engine
 #   docker compose up -d --build                      API on http://localhost:8000 (+ PostgreSQL)
-#   docker compose --profile batch run --rm pipeline  process data/inbound_customer_emails.csv -> ./exports
+#   docker compose --profile batch run --rm batch     process data/inbound_customer_emails.csv -> ./exports
 #   docker compose --profile test run --rm tests      full test suite against the stack's database
 # Requires a .env file (cp .env.example .env).
 
@@ -42,7 +42,7 @@ services:
       - "${API_PORT:-8000}:8000"
     restart: unless-stopped
 
-  pipeline:
+  batch:
     <<: *app
     profiles: ["batch"]
     user: "${HOST_UID:-1000}:${HOST_GID:-1000}"

@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 # CommerceOps AI Engine: multi-stage image.
-#   runtime (default): API server / batch pipeline, non-root, no tests or dev tools
+#   runtime (default): API server / batch runs, non-root, no tests or dev tools
 #   test:              runtime + dev tools + test suite
 
 FROM python:3.12-slim AS base
@@ -29,7 +29,6 @@ COPY src/ src/
 COPY data/ data/
 COPY fixtures/ fixtures/
 COPY evals/gold_labels.json evals/gold_labels.json
-COPY run_pipeline.py ./
 RUN mkdir -p exports && chown app:app exports
 USER app
 EXPOSE 8000

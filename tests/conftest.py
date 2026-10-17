@@ -199,9 +199,7 @@ def database_url() -> str:
 def clean_database(database_url: str) -> str:
     db = Database(make_settings())
     with db.cursor() as cur:
-        cur.execute(
-            "DROP TABLE IF EXISTS sql_audit, order_lines, emails, products, lexical_stats, schema_migrations CASCADE"
-        )
+        cur.execute("DROP TABLE IF EXISTS sql_audit, order_lines, emails, products, schema_migrations CASCADE")
         cur.execute("DROP VIEW IF EXISTS product_catalog, order_history")
     db.close()
     return database_url

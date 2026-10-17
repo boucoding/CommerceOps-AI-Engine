@@ -54,10 +54,10 @@ down:  ## Stop the Docker stack
 logs:  ## Follow Docker logs
 	docker compose logs -f
 
-docker-run:  ## Run the batch pipeline in Docker -> ./exports
-	docker compose --profile batch run --rm pipeline
+docker-run:  ## Process the sample emails in Docker -> ./exports
+	docker compose --profile batch run --rm batch
 
-docker-test:  ## Run unit + integration tests in Docker
+docker-test:  ## Run the test suite inside the Docker stack
 	docker compose --profile test run --rm --build tests
 
 clean:  ## Remove caches and local evaluation output

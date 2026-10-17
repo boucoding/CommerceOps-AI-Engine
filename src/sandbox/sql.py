@@ -36,13 +36,13 @@ from src.utils.logger import get_logger
 
 logger = get_logger("sandbox.sql")
 
-# Views created by migration 003 for the agent. Documented to the model in its prompt.
+# Views created by migration 001 for the agent. Documented to the model in its prompt.
 VIEW_DOCS: Dict[str, str] = {
     "product_catalog": "product_id, name, category, description, seasons, price, stock",
     "order_history": "product_id, product_name, quantity, status ('created' | 'out of stock'), ordered_at",
 }
 ALLOWED_VIEWS: FrozenSet[str] = frozenset(VIEW_DOCS)
-READONLY_ROLE = "commerceops_agent_readonly"  # created by migration 003
+READONLY_ROLE = "commerceops_agent_readonly"  # created by migration 001
 
 # sqlglot sql_name() values (upper case) of functions the model may call. Anything else is rejected.
 ALLOWED_FUNCTIONS: FrozenSet[str] = frozenset(

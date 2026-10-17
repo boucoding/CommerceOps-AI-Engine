@@ -1,6 +1,6 @@
 [project]
 name = "commerceops-ai-engine"
-version = "2.0.0"
+version = "3.0.0"
 description = "Plan-and-execute LLM agent that turns customer emails into stock reservations and grounded replies."
 requires-python = ">=3.12"
 license = { text = "CC-BY-NC-4.0" }
