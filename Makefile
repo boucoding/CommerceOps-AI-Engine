@@ -1,26 +1,65 @@
-.PHONY: build up down test run logs clean shell
+# CommerceOps AI Engine: common tasks. Run `make help` for the list.
+PY ?= python
+HOST_UID := $(shell id -u)
+HOST_GID := $(shell id -g)
+export HOST_UID HOST_GID
 
-build:
-	docker compose build
+.PHONY: help install dev lint format typecheck test check record eval run migrate serve up down logs \
+        docker-run docker-test clean
 
-up:
-	docker compose up -d postgres-db
+help:  ## Show this help
+	@grep -E '^[a-zA-Z_-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "}; {printf "  %-18s %s\n", $$1, $$2}'
 
-down:
+install:  ## Install runtime dependencies
+	$(PY) -m pip install -r requirements.txt
+
+dev:  ## Install runtime + development dependencies
+	$(PY) -m pip install -r requirements-dev.txt
+
+lint:  ## Lint and check formatting
+	ruff check . && ruff format --check .
+
+format:  ## Auto-format and apply safe lint fixes
+	ruff format . && ruff check --fix .
+
+typecheck:  ## Static type checking
+	mypy
+
+test:  ## Tests (database tests need TEST_DATABASE_URL; see README)
+	$(PY) -m pytest --cov --cov-report=term-missing
+
+check: lint typecheck test  ## Everything CI runs locally
+
+record:  ## Run the agent live on the sample emails and save the recording (needs OPENAI_API_KEY)
+	$(PY) -m src.cli eval --mode record --output evals/latest_live.md
+
+eval:  ## Score the recorded run against the gold labels (no API key needed)
+	$(PY) -m src.cli eval --mode replay --output evals/latest_replay.md
+
+run:  ## Process data/inbound_customer_emails.csv with the configured LLM_MODE -> exports/
+	$(PY) -m src.cli run
+
+migrate:  ## Apply database migrations
+	$(PY) -m src.cli migrate
+
+serve:  ## Run the API locally on :8000
+	$(PY) -m src.cli serve
+
+up:  ## Start PostgreSQL + API in Docker (needs .env)
+	docker compose up -d --build
+
+down:  ## Stop the Docker stack
 	docker compose down
 
-test:
-	docker compose run --rm test-runner
-
-run:
-	docker compose run --rm commerceops-app
-
-shell:
-	docker compose run --rm commerceops-app /bin/bash
-
-logs:
+logs:  ## Follow Docker logs
 	docker compose logs -f
 
-clean:
-	docker compose down -v
-	rm -rf __pycache__ .pytest_cache .coverage Solving_Business_Problems_Output.xlsx
+docker-run:  ## Process the sample emails in Docker -> ./exports
+	docker compose --profile batch run --rm batch
+
+docker-test:  ## Run the test suite inside the Docker stack
+	docker compose --profile test run --rm --build tests
+
+clean:  ## Remove caches and local evaluation output
+	rm -rf .pytest_cache .mypy_cache .ruff_cache .coverage htmlcov evals/latest_*.md
+	find . -name __pycache__ -type d -prune -exec rm -rf {} +

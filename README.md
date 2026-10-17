@@ -1,179 +1,229 @@
 # CommerceOps AI Engine
-### *Enterprise Omnichannel Order Fulfillment & Intelligent Customer Operations Platform*
 
-[![Docker](https://img.shields.io/badge/Architecture-Docker--First%20Production-2496ED.svg)](https://www.docker.com/)
-[![PostgreSQL](https://img.shields.io/badge/Database-PostgreSQL%2016%20%2B%20pgvector-336791.svg)](https://github.com/pgvector/pgvector)
-[![LLM](https://img.shields.io/badge/LLM-GPT--4o%20Structured%20Outputs-412991.svg)](https://openai.com/)
-[![Security Guardrails](https://img.shields.io/badge/Security-PII%20Scrubbing%20%2B%20Injection%20Guard-green.svg)](https://github.com/boucoding)
-[![License: CC BY-NC 4.0](https://img.shields.io/badge/License-CC%20BY--NC%204.0%20(Non--Commercial)-lightgrey.svg)](https://creativecommons.org/licenses/by-nc/4.0/)
-[![GitHub](https://img.shields.io/badge/GitHub-boucoding-181717.svg?logo=github)](https://github.com/boucoding)
-[![LinkedIn](https://img.shields.io/badge/LinkedIn-aadiab-0A66C2.svg?logo=linkedin)](https://www.linkedin.com/in/aadiab)
+[![CI](https://github.com/boucoding/CommerceOps-AI-Engine/actions/workflows/ci.yml/badge.svg)](https://github.com/boucoding/CommerceOps-AI-Engine/actions/workflows/ci.yml)
+![Python 3.12](https://img.shields.io/badge/python-3.12-3776AB.svg)
+![PostgreSQL 16 + pgvector](https://img.shields.io/badge/PostgreSQL%2016-pgvector-336791.svg)
+[![License: CC BY-NC 4.0](https://img.shields.io/badge/License-CC%20BY--NC%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by-nc/4.0/)
+
+An LLM agent that reads customer emails for an online store, works out what each customer wants,
+checks the catalog and sales data, reserves stock, and writes the reply. It uses the
+**plan-and-execute** pattern, with a **sandboxed SQL tool** for research.
+
+Illustrative run:
+
+```
+"Hi, this is Liz. Please send me 5 CLF2109 Cable Knit Beanies and 2 pairs of FZZ1098 Fuzzy Slippers."
+
+plan     order request · search_catalog → search_catalog → reserve_stock → submit_reply
+execute  search_catalog("CLF2109")   → Cable Knit Beanie, 2 in stock
+         search_catalog("FZZ1098")   → Fuzzy Slippers, 2 in stock
+         reserve_stock(...)          → CLF2109 ×5 out of stock · FZZ1098 ×2 created
+         submit_reply(...)           → validated, signed, sent
+```
 
 ---
 
-## 1. Business Problem & Solution
-
-High-growth luxury and omnichannel retail brands lose millions in revenue due to manual email triage. Support teams spend 4–8 minutes per email manually parsing messy customer messages, verifying ERP stock, and answering sizing/styling questions—creating fulfillment delays, cart abandonment, and inventory race conditions.
-
-**CommerceOps AI Engine** transforms unstructured customer emails into structured, real-time e-commerce actions. It autonomously classifies intent, executes sub-millisecond hybrid catalog retrieval, performs ACID transactional stock reservations, and generates personalized, production-ready responses—reducing SLA from hours to seconds with zero hallucination.
-
----
-
-## 2. End-to-End System Architecture
+## How it works
 
 ```mermaid
-flowchart TD
-    subgraph Inbound["1. Inbound & Security Layer"]
-        InboundEmail["Customer Email Stream"] --> Guardrail["Security Guardrail\n(PII Tokenizer + Injection Defense)"]
-        Guardrail --> Classifier["Zero-Shot Intent Classifier\n(GPT-4o Structured Output)"]
-    end
-
-    subgraph CoreEngine["2. CommerceOps Intelligent Core (Dockerized)"]
-        Classifier -->|Intent: 'order request'| OrderRouter["Two-Stage Order Extractor\n(O(1) Token Scaling)"]
-        Classifier -->|Intent: 'product inquiry'| InquiryRouter["Language-Adaptive Stylist RAG\n(GPT-4o Grounding)"]
-        
-        OrderRouter --> HybridSearch["Hybrid Search Engine\n(pgvector HNSW + Trigrams)"]
-        InquiryRouter --> HybridSearch
-        
-        HybridSearch --> PgVectorDB[("PostgreSQL 16 + pgvector\n(HNSW Vector Index & Trigrams)")]
-        
-        OrderRouter --> InventoryACID["ACID Inventory Service\n(SELECT FOR UPDATE Locking)"]
-        InventoryACID --> PgVectorDB
-    end
-
-    subgraph QualityLayer["3. Deterministic Guardrails & Output"]
-        OrderRouter --> Templater["Deterministic Template Engine\n(Placeholder Scrubbing & PII Unmasking)"]
-        InquiryRouter --> Templater
-        
-        Templater --> ExportEngine["Enterprise Reporting Engine\n(Multi-Sheet Excel / CSV / Audit Logs)"]
-    end
-
-    style Guardrail fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
-    style OrderRouter fill:#e1f5fe,stroke:#0288d1,stroke-width:2px
-    style HybridSearch fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
-    style InventoryACID fill:#e8f5e9,stroke:#388e3c,stroke-width:2px
-    style Templater fill:#fff3e0,stroke:#f57c00,stroke-width:2px
+flowchart LR
+    E[Email] --> G{Guardrail}
+    G -- injection --> H[Escalate to a person]
+    G -- PII masked --> P[Planner]
+    P --> X[Executor<br/>one tool per turn]
+    X -- tool error --> R[Replanner]
+    R -- continue / revise --> X
+    R -- escalate --> H
+    X --> T[(Tools)]
+    T --> X
+    X -- submit_reply passes validation --> O[Reply + order lines + trace]
 ```
+
+1. **Guardrail.** Emails matching prompt-injection signatures go straight to a person; the model never
+   sees them. Emails, phone numbers, card numbers and addresses are replaced with tokens such as
+   `{{EMAIL_1}}` before anything reaches the model, and restored only in the outgoing reply.
+2. **Plan.** One structured-output call returns the intent, the customer's name and language, and a
+   short list of tool steps with success criteria.
+3. **Execute.** A strict function-calling loop works through the plan, one tool per turn:
+
+   | Tool | What it does |
+   |---|---|
+   | `search_catalog` | Hybrid search: exact or misspelled product IDs (pg_trgm), plus dense vectors (pgvector HNSW) and full-text, fused with RRF |
+   | `get_products` | Live details and stock |
+   | `query_database` | Read-only SQL over two views: `product_catalog` and `order_history` |
+   | `reserve_stock` | Atomic, all-or-nothing per line, idempotent per email. Only offered for orders |
+   | `submit_reply` | Ends the run, but only if the reply passes validation |
+
+4. **Replan.** When a tool fails, a replanner sees the goal, the plan and the history. It decides to
+   *continue*, *revise* the remaining steps, or *escalate* to a person.
+5. **Finish.** The outcome is stored with the plan, the full tool trace and the token usage. Every email
+   ends in one of these statuses:
+   - `processed`
+   - `needs_clarification`
+   - `escalated`
+   - `needs_review` (the agent gave up or ran out of budget)
+   - `failed` (model or infrastructure error; safe to retry)
 
 ---
 
-## 3. Engineering Highlights
+## Safety by design
 
-### A. Two-Stage RAG Order Extraction ($O(1)$ Token Complexity)
-* **Candidate Retrieval**: Fast hybrid search extracts top $k=5$ candidate products matching mentions in the email body.
-* **Structured Resolution**: Injects only candidate records into GPT-4o structured extraction (`ExtractedOrder`), maintaining constant $\sim 250$ prompt tokens even at $100{,}000+$ SKUs ($99.6\%$ cost reduction).
+| Risk | Control |
+|---|---|
+| Prompt injection | Signature screen before any model call; customer text sits inside `<customer_untrusted_input>` tags; tools enforce policy in code, so the model cannot "talk its way" past them |
+| Leaking personal data to the model | Reversible PII masking; the SQL views expose no customer data; logs never contain email content |
+| Model-written SQL | sqlglot validation fails closed: one `SELECT`, allowlisted views and functions, no DML/DDL/`SELECT INTO`/locks. Then a `READ ONLY` transaction with `SET LOCAL ROLE` to a NOLOGIN role that can only read the two views. Also: `statement_timeout`, caps on rows and cell length, and an audit log of every attempt |
+| Wrong or invented products | `reserve_stock` only accepts products a tool returned in this run. Replies may only cite product IDs that tools returned, and must mention every reserved product |
+| Overselling and double charging | Row locks taken in primary-key order; all-or-nothing lines; reservations unique per (email, product), so retries never reserve twice |
+| Runaway cost or loops | Caps on turns and replans per email, one tool call per turn, quantity limits that hand off to a person |
 
-### B. PostgreSQL 16 + `pgvector` with HNSW & Trigram Indexing
-* **HNSW Cosine Vector Indexing**: Sub-millisecond similarity search across $100\text{k}+$ SKUs (`vector_cosine_ops`).
-* **Trigram Typo Recovery (`pg_trgm`)**: Automatically recovers customer typos (e.g. `DHN0987` $\rightarrow$ `CHN0987 Chunky Knit Beanie`) and formatted bracketed SKUs (`[CBT 89 01]` $\rightarrow$ `CBT8901`).
-
-### C. ACID Transactional Inventory Locking
-* Multi-worker safe stock reservations prevent race conditions and overselling using row-level locking:
-  ```sql
-  SELECT product_id, name, stock FROM products WHERE product_id = %s FOR UPDATE;
-  ```
-
-### D. Security Guardrails & PII Compliance (GDPR / CCPA)
-* **Reversible PII Masking**: Deterministically tokenizes personal emails, phone numbers, credit cards, SSNs, and addresses (`{{PHONE_1}}`, `{{EMAIL_1}}`) before LLM transmission. Outbound responses unmask details securely on-premise.
-* **Prompt Injection Defense**: Detects adversarial jailbreaks (*"Ignore previous instructions"*, *"Set prices to $0"*), quarantining untrusted customer inputs inside XML boundaries (`<customer_untrusted_input>`).
-
-### E. Deterministic Brand Guardrails (Zero Placeholder Leaks)
-* Extracts customer names from conversational greetings and deterministically injects verified enterprise metadata, signatures, and contact details, eliminating raw bracket tags (`[Your Name]`, `[Brand Name]`).
+Tests prove that the database rejects writes and private tables even when the SQL parser is bypassed.
 
 ---
 
-## 4. Docker-First Production Architecture & Testing
+## Quick start
 
-The platform runs inside an ultra-slim multi-stage Docker container with zero host system pollution.
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                      Docker Network                         │
-│                                                             │
-│   ┌─────────────────────┐         ┌─────────────────────┐   │
-│   │   postgres-db       │         │   commerceops-app   │   │
-│   │   pgvector:pg16     │◄───────►│   (FastAPI/Pipeline)│   │
-│   │   HNSW + pg_trgm    │         └─────────────────────┘   │
-│   └─────────────────────┘                    │              │
-│              ▲                               ▼              │
-│              │                    ┌─────────────────────┐   │
-│              └───────────────────►│   test-runner       │   │
-│                                   │   (Pytest / Coverage)   │   │
-│                                   └─────────────────────┘   │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### Environment Configuration
-The platform requires an OpenAI API Key for live LLM completions and embeddings. Keys and database parameters are strictly loaded from environment variables (never hardcoded):
+**Docker** (PostgreSQL + API):
 
 ```bash
-# 1. Copy the example configuration file
-cp .env.example .env
-
-# 2. Add your OpenAI API key in .env:
-# OPENAI_API_KEY=sk-...
+cp .env.example .env     # set OPENAI_API_KEY and POSTGRES_PASSWORD
+docker compose up -d --build
+curl -s localhost:8000/v1/emails -H 'content-type: application/json' \
+  -d '{"email_id": "demo-1", "body": "Do you have warm winter hats? Which one sells best?"}'
 ```
 
-### Quick Commands
+Interactive API docs: http://localhost:8000/docs
+
+**Batch** (CSV in → Excel/CSV report out):
 
 ```bash
-# 1. Build ultra-slim container stack
-docker compose build
+docker compose --profile batch run --rm batch         # writes ./exports
+```
 
-# 2. Run test suite inside Docker
-docker compose run --rm test-runner
+**Local development** (Python 3.12, any PostgreSQL 16 with pgvector; connection settings in `.env`):
 
-# 3. Execute pipeline in production container
-docker compose run --rm commerceops-app
+```bash
+make dev                  # install dependencies
+make run                  # process data/inbound_customer_emails.csv
+make serve                # API on :8000
+make help                 # all commands
+```
 
-# 4. Clean container environment
-docker compose down -v
+Database migrations run automatically on startup, and the catalog in `data/catalog_products.csv` is
+synced, re-embedding only products whose text changed. Existing stock levels are kept.
+
+---
+
+## Evaluation
+
+[`evals/gold_labels.json`](evals/gold_labels.json) holds hand labels for the 23 sample emails:
+- intent
+- exact order lines (product, quantity, status)
+- status
+- customer name
+- reply language
+- products the reply must be grounded in
+
+The evaluation scores intent accuracy, order-line precision and recall, status, name and language
+accuracy, context recall, reply grounding, and **plan adherence** (did the executor carry out the steps it
+planned?). It also counts tool calls, replans, SQL queries and tokens.
+
+```bash
+make record   # run the agent live on the sample emails, save every model exchange (needs a key)
+make eval     # replay that run deterministically and score it (no key, no network)
+```
+
+Both commands **reset the database** first (processed emails are cleared and stock is restored from the
+catalog file), so point them at a development database.
+
+Recordings are strict: a changed prompt, tool schema or catalog row makes the replay fail rather than
+return an answer to a different question. Once `fixtures/llm_recordings.json` is committed, CI re-scores
+it on every push and fails if intent accuracy or order-line recall drops below 90%.
+
+---
+
+## API
+
+| Method | Path | Purpose |
+|---|---|---|
+| `POST` | `/v1/emails` | Process one email; idempotent on `email_id`. Returns status, reply, order lines, plan and trace |
+| `POST` | `/v1/emails/batch` | Process up to `API_MAX_BATCH` emails |
+| `GET` | `/v1/emails/{email_id}` | Stored outcome |
+| `GET` | `/v1/products/{product_id}` | Product with live stock |
+| `GET` | `/v1/products?query=…` | The same hybrid search the agent uses |
+| `GET` | `/healthz`, `/readyz` | Liveness and readiness |
+
+Set `API_KEY` to require an `X-API-Key` header on `/v1` routes. Every response carries `X-Request-ID`,
+which also appears in the logs.
+
+---
+
+## Configuration
+
+All settings come from environment variables or `.env`; see [.env.example](.env.example).
+
+| Variable | Default | Notes |
+|---|---|---|
+| `LLM_MODE` | `live` | `live`, `record` or `replay` |
+| `OPENAI_API_KEY` | — | Required for `live` and `record` |
+| `LLM_MODEL` | `gpt-6-luna` | Needs Structured Outputs and function calling |
+| `EMBEDDING_MODEL` | `text-embedding-3-small` | 1536 dimensions (matches the DB column) |
+| `AGENT_MAX_STEPS` / `AGENT_MAX_REPLANS` | `12` / `2` | Per-email budgets |
+| `AGENT_MAX_ORDER_QUANTITY` | `50` | Larger requests go to human review |
+| `SQL_STATEMENT_TIMEOUT_MS` / `SQL_MAX_ROWS` | `2000` / `50` | Sandbox limits |
+| `BATCH_WORKERS` | `1` | `1` = first-come-first-served stock allocation; more is safe but allocation order varies |
+| `DATABASE_URL` or `POSTGRES_*` | — | Database connection |
+| `BRAND_NAME`, `AGENT_NAME`, `SUPPORT_EMAIL`, `PHONE_NUMBER` | Aura Fashion Atelier… | Prompts and signature |
+
+---
+
+## Development
+
+```bash
+export TEST_DATABASE_URL=postgresql://user:pass@localhost:5432/commerceops_test   # wiped by the tests
+make check                # ruff + mypy + pytest with coverage
+make docker-test          # the same suite inside the Docker stack
+```
+
+- **94 tests, 94% coverage.** Tests that don't need a database (guardrails, SQL validation, reply
+  validation, LLM clients, scoring) run anywhere; the rest skip without `TEST_DATABASE_URL`.
+- **No real model in tests.** A scripted client plays back plans and tool calls. Tests cover replanning,
+  recovery from rejected replies, outages followed by a retry, crash recovery without double
+  reservation, budget exhaustion, injection escalation and PII never reaching the model.
+- **CI** runs lint, types and tests against a pgvector service, replays the recorded evaluation, and runs
+  the suite inside the Docker stack.
+
+```
+src/
+  agent/          planner, executor loop, tools, prompts, schemas
+  sandbox/        SQL validation and read-only execution
+  safety/         input guardrails (injection, PII) and reply validation
+  llm/            OpenAI client, record/replay
+  storage/        PostgreSQL store, schema migration, connection pool
+  api/            FastAPI app
+  models/         domain objects (products, emails, order lines, outcomes)
+  utils/          logging, Excel/CSV reporting
+  engine.py       wiring shared by the CLI, API and evaluation
+  catalog.py      catalog sync (embeds only changed products)
+  evaluation.py   gold-label scoring
+  cli.py          run | eval | migrate | seed | serve
+data/             sample catalog (99 products) and inbound emails (23)
+evals/            gold labels
+fixtures/         recorded model traffic (created by `make record`)
+docker/           database init script (creates the test database)
 ```
 
 ---
 
-## 5. Testing & Quality Assurance Coverage Matrix
+## Limitations
 
-Running `docker compose run --rm test-runner` executes the full suite:
-
-| Test Module | Coverage Scope | Key Assertions Verified in Container |
-| :--- | :--- | :--- |
-| `tests/test_guardrails.py` | PII masking & prompt injection defense | Email/phone/card tokenization, reversible unmasking, jailbreak screening. |
-| `tests/test_fuzzy_matcher.py` | Fuzzy typo recovery & SKU normalization | `DHN0987` $\rightarrow$ `CHN0987`, `[CBT 89 01]` $\rightarrow$ `CBT8901`, name matching. |
-| `tests/test_inventory_service.py` | ACID transactions & stock reservation logic | Atomic reservations, zero-stock rejection, sequential stock depletion. |
-| `tests/test_hybrid_vector_store.py` | PgVector HNSW similarity & score fusion | Cosine similarity ranking, typo priority boosting, top-$k$ bounds. |
-| `tests/test_intent_classifier.py` | Intent edge cases & structured outputs | Postponed purchases, purchase commitments, rambling noise. |
-| `tests/test_order_extractor.py` | Two-Stage RAG extraction & stock updates | $O(1)$ token candidate retrieval, quantity parsing, stock decrement. |
-| `tests/test_template_engine.py` | Deterministic template scrubbing & signatures | Zero `[` or `]` bracket leaks, dynamic customer name extraction. |
-| `tests/test_end_to_end.py` | Full batch pipeline regression | 100% schema compliance across all 4 output tables with zero data loss. |
+- Needs a model API key to process new emails. Replay only covers emails that were recorded.
+- The injection screen is signature-based; the main protection is that tools enforce policy in code.
+- One tool call per turn trades latency for simpler permission checks and traces.
+- No mailbox connector (IMAP, helpdesk webhooks). The HTTP API is the integration point.
 
 ---
 
-## 6. Technology Stack
-
-* **Infrastructure**: Docker Compose, Multi-Stage Ultra-Slim Dockerfile
-* **Database & Vector Engine**: PostgreSQL 16 + `pgvector` (HNSW indexing) + `pg_trgm` GIN indexes
-* **Security & Compliance**: In-Process Regex PII Tokenizer (GDPR/CCPA) + Adversarial Jailbreak Guard
-* **Language & Core Frameworks**: Python 3.11 (Type Hints, Pydantic v2 Settings & Schemas)
-* **AI & LLM Orchestration**: OpenAI GPT-4o Structured Outputs + `text-embedding-3-small`
-* **Algorithms**: RapidFuzz (Levenshtein distance), Cosine Distance Score Fusion
-* **Data Processing**: Pandas, OpenPyXL, NumPy
-* **Testing**: Pytest, Pytest-Cov, Pytest-Asyncio in Docker
-
----
-
-## 7. Author & Connect
-
-**Created by**: [boucoding](https://github.com/boucoding)
-
-* **GitHub**: [@boucoding](https://github.com/boucoding)
-* **LinkedIn**: [linkedin.com/in/aadiab](https://www.linkedin.com/in/aadiab)
-
----
-
-## 8. License
-
-This project is open-source and licensed under the **[Creative Commons Attribution-NonCommercial 4.0 International (CC BY-NC 4.0)](https://creativecommons.org/licenses/by-nc/4.0/)** license.
-
-* **Permitted**: Free for individual, educational, research, and non-commercial exploration.
-* **Prohibited**: Commercial exploitation, deployment in closed-source commercial SaaS, or direct monetary advantage without prior written consent from the author.
+Created by [boucoding](https://github.com/boucoding) · [LinkedIn](https://www.linkedin.com/in/aadiab) ·
+Licensed under [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/): free for personal,
+educational and research use; commercial use needs the author's written consent.

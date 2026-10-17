@@ -21,3 +21,13 @@ htmlcov/
 .vscode/
 .idea/
 *.swp
+
+# Tooling caches
+.mypy_cache/
+.ruff_cache/
+
+# Local evaluation output
+evals/latest_*.md
+
+# Generated reports
+exports/

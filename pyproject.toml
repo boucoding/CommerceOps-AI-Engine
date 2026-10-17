@@ -1,0 +1,33 @@
+[project]
+name = "commerceops-ai-engine"
+version = "3.0.0"
+description = "Plan-and-execute LLM agent that turns customer emails into stock reservations and grounded replies."
+requires-python = ">=3.12"
+license = { text = "CC-BY-NC-4.0" }
+authors = [{ name = "boucoding" }]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+filterwarnings = ["error::DeprecationWarning:src.*"]
+
+[tool.coverage.run]
+source = ["src"]
+omit = ["src/cli.py"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "BLE"]
+ignore = ["UP007", "UP045", "UP006", "UP035"]
+
+[tool.mypy]
+python_version = "3.12"
+packages = ["src"]
+ignore_missing_imports = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+check_untyped_defs = true
+no_implicit_optional = true
