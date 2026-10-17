@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Lint, types, unit tests, evaluation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+      - run: pip install -r requirements-dev.txt
+      - name: Lint
+        run: ruff check . && ruff format --check .
+      - name: Type check
+        run: mypy
+      - name: Unit tests
+        run: pytest --cov --cov-report=term-missing
+      - name: Evaluate replay fixtures against gold labels
+        run: python -m src.cli eval --mode replay --min-intent-accuracy 0.9 --min-order-recall 0.9 --output eval-replay.md
+      - name: Evaluate offline rules against gold labels
+        run: python -m src.cli eval --mode offline --min-intent-accuracy 0.9 --min-order-recall 0.9 --output eval-offline.md
+      - name: Publish evaluation summary
+        if: always()
+        run: cat eval-replay.md eval-offline.md >> "$GITHUB_STEP_SUMMARY" || true
+
+  integration:
+    name: PostgreSQL + pgvector integration
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:0.8.0-pg16
+        env:
+          POSTGRES_DB: commerceops_test
+          POSTGRES_USER: commerceops
+          POSTGRES_PASSWORD: commerceops
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U commerceops -d commerceops_test"
+          --health-interval 3s --health-timeout 3s --health-retries 20
+    env:
+      TEST_DATABASE_URL: postgresql://commerceops:commerceops@localhost:5432/commerceops_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+      - run: pip install -r requirements-dev.txt
+      - run: pytest -m integration -v
+
+  docker:
+    name: Docker image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build runtime image
+        run: docker build --target runtime -t commerceops-ai-engine:ci .
+      - name: Smoke test the API in replay mode
+        run: |
+          docker run -d --name api -p 8000:8000 -e LLM_MODE=replay commerceops-ai-engine:ci
+          for i in $(seq 1 30); do curl -sf localhost:8000/readyz && break; sleep 1; done
+          curl -sf -X POST localhost:8000/v1/emails -H 'content-type: application/json' \
+            -d '{"email_id":"E010","subject":"Purchase Retro Sunglasses","body":"Hello, I would like to order 1 pair of RSG8901 Retro Sunglasses. Thanks!"}' \
+            | python3 -c "import json,sys; d=json.load(sys.stdin); assert d['lines'][0]['status']=='created' and not d['degraded'], d"
+      - name: Container logs
+        if: failure()
+        run: docker logs api
