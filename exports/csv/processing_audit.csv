@@ -1,0 +1,24 @@
+email ID,category,status,confidence,language,customer name,order lines,unresolved mentions,context products,guardrail flags,degraded,degraded reasons,llm calls,replayed calls,prompt tokens,completion tokens,latency ms,duplicate
+E001,order request,processed,0.95,en,,1,,LTH0976,,False,,3,3,0,0,6,False
+E002,order request,processed,0.95,en,Jessica,1,,VBT2345,,False,,3,3,0,0,6,False
+E003,product inquiry,processed,0.97,en,David,0,,"LTH1098, LTH5432, QTP5432, LTH2109, SBP4567, VBT2345",,False,,2,2,0,0,6,False
+E004,order request,processed,0.95,en,,1,,SFT1098,,False,,3,3,0,0,35,False
+E005,product inquiry,processed,0.96,en,,0,,"CSH1098, VSC6789, CSW6789, CCG8901, SFT1098",,False,,2,2,0,0,8,False
+E006,product inquiry,processed,0.93,en,Sam,0,,"CBT8901, RBT0123, SNB4321, WTR7654, CHK8901",,False,,2,2,0,0,17,False
+E007,order request,processed,0.95,en,Liz,2,,"CLF2109, FZZ1098, CHN0987, SFT1098",,False,,3,3,0,0,8,False
+E008,order request,processed,0.95,en,,1,,VSC6789,,False,,3,3,0,0,34,False
+E009,product inquiry,processed,0.95,es,,0,,"CHN0987, CSW6789, CPJ2345, CHL4567, RBT0123",,False,,2,2,0,0,34,False
+E010,order request,processed,0.95,en,,1,,RSG8901,,False,,3,3,0,0,60,False
+E011,product inquiry,processed,0.97,en,,0,,"RSG8901, DJN8901, CLG4567, RGD7654, CRD3210",,False,,2,2,0,0,22,False
+E012,product inquiry,processed,0.9,en,,0,,"LTH2109, CBG9876, LTH5432, LTH1098, QTP5432",,False,,2,2,0,0,41,False
+E013,order request,processed,0.95,en,Marco,1,,SLD7654,,False,,3,3,0,0,21,False
+E014,order request,processed,0.95,en,Johny,1,,SWL2345,,False,,3,3,0,0,44,False
+E015,product inquiry,processed,0.96,en,,0,,"QTP5432, CCB6789, LTH2109, LTH1098",,False,,2,2,0,0,31,False
+E016,product inquiry,processed,0.95,en,Claire,0,,"SWT8765, LTH2109, RBB5432, RCS0123",,False,,2,2,0,0,30,False
+E017,order request,needs_clarification,0.85,en,,0,that popular item,,,False,,3,3,0,0,36,False
+E018,order request,processed,0.95,en,,1,,"RSG8901, BKR0123, CPN3210",,False,,3,3,0,0,34,False
+E019,order request,processed,0.95,en,,1,,CBT8901,,False,,3,3,0,0,40,False
+E020,product inquiry,processed,0.97,en,Antonio,0,,"SDE2345, FRP6789, CBG9876, LTH2109, CCB6789",,False,,2,2,0,0,27,False
+E021,product inquiry,processed,0.95,en,,0,,"SDE2345, DJN8901, RGD7654, CRD3210, FZV1098, SKR3210, BKR0123, CBY6789",,False,,2,2,0,0,46,False
+E022,order request,needs_clarification,0.88,en,Monica,0,bags with geometric patterns,,,False,,3,3,0,0,23,False
+E023,order request,processed,0.95,en,,1,,"CGN2345, CRD3210, OVR3210",,False,,3,3,0,0,30,False
