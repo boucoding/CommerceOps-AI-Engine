@@ -1,66 +1,145 @@
 """
-Enterprise Reporter & Multi-Sheet Spreadsheet Exporter.
+Batch reporting: the four operational tables plus a processing audit, exported to
+one Excel workbook and individual CSV files.
 """
 
+from __future__ import annotations
+
 import os
-from typing import Optional
+from dataclasses import dataclass
+from typing import Dict, List, Optional, Sequence
+
 import pandas as pd
-from src.config import settings
-from src.utils.logger import logger
 
-class OperationsReporter:
-    """
-    Exports processing results to Excel and CSV formats with clean enterprise naming.
-    """
+from src.models.domain import ORDER_REQUEST, EmailOutcome
+from src.utils.logger import get_logger
 
-    @classmethod
-    def export_all(
-        cls,
-        df_classification: pd.DataFrame,
-        df_order_status: pd.DataFrame,
-        df_order_response: pd.DataFrame,
-        df_inquiry_response: pd.DataFrame,
-        excel_path: Optional[str] = None,
-        csv_dir: Optional[str] = None
-    ):
-        excel_file = excel_path or settings.EXCEL_OUTPUT_PATH
-        target_csv_dir = csv_dir or settings.CSV_OUTPUT_DIR
+logger = get_logger("reporter")
 
-        # Ensure directories exist
-        os.makedirs(os.path.dirname(excel_file) or ".", exist_ok=True)
-        os.makedirs(target_csv_dir, exist_ok=True)
+WORKBOOK_NAME = "commerceops_operations_report.xlsx"
+CSV_NAMES = {
+    "email-classification": "email_intent_classification.csv",
+    "order-status": "order_fulfillment_status.csv",
+    "order-response": "order_dispatch_responses.csv",
+    "inquiry-response": "customer_inquiry_responses.csv",
+    "processing-audit": "processing_audit.csv",
+}
 
-        # 1. Export Clean Primary Excel Workbook
-        try:
-            with pd.ExcelWriter(excel_file, engine='openpyxl') as writer:
-                df_classification.to_excel(writer, sheet_name='email-classification', index=False)
-                df_order_status.to_excel(writer, sheet_name='order-status', index=False)
-                df_order_response.to_excel(writer, sheet_name='order-response', index=False)
-                df_inquiry_response.to_excel(writer, sheet_name='inquiry-response', index=False)
-            logger.info(f"Generated enterprise Excel report: {excel_file}")
-            
-            # Sync to legacy file for evaluation compatibility
-            with pd.ExcelWriter(settings.LEGACY_EXCEL_PATH, engine='openpyxl') as writer:
-                df_classification.to_excel(writer, sheet_name='email-classification', index=False)
-                df_order_status.to_excel(writer, sheet_name='order-status', index=False)
-                df_order_response.to_excel(writer, sheet_name='order-response', index=False)
-                df_inquiry_response.to_excel(writer, sheet_name='inquiry-response', index=False)
-        except Exception as e:
-            logger.error(f"Failed to export Excel workbook: {e}")
 
-        # 2. Export Clean Primary CSV files
-        try:
-            df_classification.to_csv(os.path.join(target_csv_dir, "email_intent_classification.csv"), index=False)
-            df_order_status.to_csv(os.path.join(target_csv_dir, "order_fulfillment_status.csv"), index=False)
-            df_order_response.to_csv(os.path.join(target_csv_dir, "order_dispatch_responses.csv"), index=False)
-            df_inquiry_response.to_csv(os.path.join(target_csv_dir, "customer_inquiry_responses.csv"), index=False)
-            logger.info(f"Exported clean CSV reports to: {target_csv_dir}")
+@dataclass
+class Report:
+    classification: pd.DataFrame
+    order_status: pd.DataFrame
+    order_response: pd.DataFrame
+    inquiry_response: pd.DataFrame
+    audit: pd.DataFrame
 
-            # Also sync to legacy folder for evaluation compatibility
-            os.makedirs(settings.LEGACY_CSV_DIR, exist_ok=True)
-            df_classification.to_csv(os.path.join(settings.LEGACY_CSV_DIR, "Solving Business Problems with AI - Output - email-classification.csv"), index=False)
-            df_order_status.to_csv(os.path.join(settings.LEGACY_CSV_DIR, "Solving Business Problems with AI - Output - order-status.csv"), index=False)
-            df_order_response.to_csv(os.path.join(settings.LEGACY_CSV_DIR, "Solving Business Problems with AI - Output - order-response.csv"), index=False)
-            df_inquiry_response.to_csv(os.path.join(settings.LEGACY_CSV_DIR, "Solving Business Problems with AI - Output - inquiry-response.csv"), index=False)
-        except Exception as e:
-            logger.error(f"Failed to export CSV sheets: {e}")
+    def sheets(self) -> Dict[str, pd.DataFrame]:
+        return {
+            "email-classification": self.classification,
+            "order-status": self.order_status,
+            "order-response": self.order_response,
+            "inquiry-response": self.inquiry_response,
+            "processing-audit": self.audit,
+        }
+
+
+def build_report(outcomes: Sequence[EmailOutcome]) -> Report:
+    classification: List[dict] = []
+    status: List[dict] = []
+    order_resp: List[dict] = []
+    inquiry_resp: List[dict] = []
+    audit: List[dict] = []
+    for o in outcomes:
+        classification.append({"email ID": o.email_id, "category": o.category})
+        for line in o.lines:
+            status.append(
+                {
+                    "email ID": o.email_id,
+                    "product ID": line.product_id,
+                    "quantity": line.requested_quantity,
+                    "status": line.status,
+                }
+            )
+        target = order_resp if o.category == ORDER_REQUEST else inquiry_resp
+        target.append({"email ID": o.email_id, "response": o.response})
+        audit.append(
+            {
+                "email ID": o.email_id,
+                "category": o.category,
+                "status": o.status.value,
+                "confidence": o.confidence,
+                "language": o.language,
+                "customer name": o.customer_name or "",
+                "order lines": len(o.lines),
+                "unresolved mentions": "; ".join(o.unresolved_mentions),
+                "context products": ", ".join(o.context_product_ids),
+                "guardrail flags": ", ".join(o.guardrail_flags),
+                "degraded": o.degraded,
+                "degraded reasons": " | ".join(o.degraded_reasons),
+                "llm calls": o.usage.llm_calls,
+                "replayed calls": o.usage.replayed_calls,
+                "prompt tokens": o.usage.prompt_tokens,
+                "completion tokens": o.usage.completion_tokens,
+                "latency ms": o.latency_ms,
+                "duplicate": o.duplicate,
+            }
+        )
+    return Report(
+        classification=pd.DataFrame(classification, columns=["email ID", "category"]),
+        order_status=pd.DataFrame(status, columns=["email ID", "product ID", "quantity", "status"]),
+        order_response=pd.DataFrame(order_resp, columns=["email ID", "response"]),
+        inquiry_response=pd.DataFrame(inquiry_resp, columns=["email ID", "response"]),
+        audit=pd.DataFrame(audit),
+    )
+
+
+def export_report(report: Report, export_dir: str, include_audit: bool = True) -> Dict[str, str]:
+    """Writes the workbook and CSVs. Returns {sheet: csv_path} plus the workbook path under 'workbook'."""
+    csv_dir = os.path.join(export_dir, "csv")
+    os.makedirs(csv_dir, exist_ok=True)
+    sheets = report.sheets()
+    if not include_audit:
+        sheets.pop("processing-audit")
+
+    workbook = os.path.join(export_dir, WORKBOOK_NAME)
+    with pd.ExcelWriter(workbook, engine="openpyxl") as writer:
+        for name, df in sheets.items():
+            df.to_excel(writer, sheet_name=name, index=False)
+            column_widths = {"response": 100, "degraded reasons": 60, "context products": 40}
+            sheet = writer.sheets[name]
+            for idx, column in enumerate(df.columns):
+                letter = sheet.cell(row=1, column=idx + 1).column_letter
+                sheet.column_dimensions[letter].width = column_widths.get(column, max(12, len(column) + 2))
+
+    paths: Dict[str, str] = {"workbook": workbook}
+    for name, df in sheets.items():
+        path = os.path.join(csv_dir, CSV_NAMES[name])
+        df.to_csv(path, index=False)
+        paths[name] = path
+    logger.info("Report written to %s (%d sheets)", export_dir, len(sheets))
+    return paths
+
+
+def summarize(
+    outcomes: Sequence[EmailOutcome], price_in: Optional[float], price_out: Optional[float]
+) -> Dict[str, object]:
+    prompt = sum(o.usage.prompt_tokens for o in outcomes)
+    completion = sum(o.usage.completion_tokens for o in outcomes)
+    summary: Dict[str, object] = {
+        "emails": len(outcomes),
+        "order_requests": sum(o.category == ORDER_REQUEST for o in outcomes),
+        "product_inquiries": sum(o.category != ORDER_REQUEST for o in outcomes),
+        "order_lines": sum(len(o.lines) for o in outcomes),
+        "needs_clarification": sum(o.status.value == "needs_clarification" for o in outcomes),
+        "escalated": sum(o.status.value == "escalated" for o in outcomes),
+        "degraded": sum(o.degraded for o in outcomes),
+        "duplicates": sum(o.duplicate for o in outcomes),
+        "llm_calls": sum(o.usage.llm_calls for o in outcomes),
+        "replayed_calls": sum(o.usage.replayed_calls for o in outcomes),
+        "prompt_tokens": prompt,
+        "completion_tokens": completion,
+    }
+    if price_in is not None and price_out is not None:
+        summary["estimated_cost_usd"] = round(prompt / 1e6 * price_in + completion / 1e6 * price_out, 4)
+    return summary

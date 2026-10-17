@@ -1,73 +1,75 @@
 """
-Embeddings Generation Client for Vector Operations.
-Supports OpenAI text-embedding-3-small with local deterministic fallback.
+Embedding generation with a content-addressed cache.
+
+Live mode uses the configured OpenAI embedding model. Offline mode (and the
+bundled hand-authored replay fixtures) use ``LocalHashEmbedder``: a deterministic
+feature-hashing vectorizer. It is lexical rather than semantic, and is labelled
+as such everywhere it is used.
 """
 
-import math
+from __future__ import annotations
+
 import hashlib
-from typing import List, Optional
+import threading
+from typing import Dict, List, Optional
+
 import numpy as np
-from openai import OpenAI
-from src.config import settings
-from src.utils.logger import logger
+
+from src.llm.base import LLMClient, text_key
+from src.retrieval.text import tokenize
+
+LOCAL_EMBEDDING_MODEL = "local:hash-v1"
+
+
+class LocalHashEmbedder:
+    embedding_model = LOCAL_EMBEDDING_MODEL
+
+    def __init__(self, dimensions: int):
+        self.dimensions = dimensions
+
+    def embed(self, texts: List[str]) -> List[List[float]]:
+        return [self._embed_one(t) for t in texts]
+
+    def _embed_one(self, text: str) -> List[float]:
+        vec = np.zeros(self.dimensions, dtype=np.float32)
+        tokens = tokenize(text)
+        features = tokens + [f"{a} {b}" for a, b in zip(tokens, tokens[1:], strict=False)]
+        for feature in features:
+            digest = int.from_bytes(hashlib.blake2b(feature.encode("utf-8"), digest_size=8).digest(), "big")
+            sign = 1.0 if digest & 1 else -1.0
+            weight = 0.5 if " " in feature else 1.0
+            vec[(digest >> 1) % self.dimensions] += sign * weight
+        norm = float(np.linalg.norm(vec))
+        if norm == 0.0:
+            return vec.tolist()
+        return (vec / norm).tolist()
+
 
 class EmbeddingService:
-    def __init__(self, client: Optional[OpenAI] = None):
-        self.client = client
-        self.dimension = settings.EMBEDDING_DIMENSIONS
+    """Embeds text through the active LLM client (or locally) and caches results by content."""
 
-    def get_embedding(self, text: str) -> List[float]:
-        """Generates 1536-dimensional embedding vector for input text."""
-        cleaned_text = text.replace("\n", " ").strip()
-        if not cleaned_text:
-            return [0.0] * self.dimension
+    def __init__(self, llm: Optional[LLMClient], dimensions: int):
+        self._local = LocalHashEmbedder(dimensions)
+        self._llm = llm
+        self.model = llm.embedding_model if llm is not None else LOCAL_EMBEDDING_MODEL
+        self._cache: Dict[str, List[float]] = {}
+        self._lock = threading.Lock()
 
-        if self.client and settings.OPENAI_API_KEY and not settings.OPENAI_API_KEY.startswith("<"):
-            try:
-                response = self.client.embeddings.create(
-                    input=[cleaned_text],
-                    model=settings.EMBEDDING_MODEL
-                )
-                return response.data[0].embedding
-            except Exception as e:
-                logger.warning(f"OpenAI embedding API failed: {e}. Using deterministic local embedding fallback.")
+    def embed(self, texts: List[str]) -> List[List[float]]:
+        keys = [text_key(self.model, t) for t in texts]
+        with self._lock:
+            missing = [(k, t) for k, t in zip(keys, texts, strict=False) if k not in self._cache]
+        if missing:
+            unique = dict(missing)
+            batch_texts = list(unique.values())
+            if self._llm is None or self.model == LOCAL_EMBEDDING_MODEL:
+                vectors = self._local.embed(batch_texts)
+            else:
+                vectors = self._llm.embed(batch_texts)
+            with self._lock:
+                self._cache.update(zip(unique.keys(), vectors, strict=False))
+        with self._lock:
+            return [self._cache[k] for k in keys]
 
-        return self._generate_deterministic_embedding(cleaned_text)
-
-    def get_batch_embeddings(self, texts: List[str]) -> List[List[float]]:
-        """Generates batch embeddings."""
-        if not texts:
-            return []
-
-        if self.client and settings.OPENAI_API_KEY and not settings.OPENAI_API_KEY.startswith("<"):
-            try:
-                response = self.client.embeddings.create(
-                    input=[t.replace("\n", " ") for t in texts],
-                    model=settings.EMBEDDING_MODEL
-                )
-                return [d.embedding for d in response.data]
-            except Exception as e:
-                logger.warning(f"Batch embedding failed: {e}. Using local fallback.")
-
-        return [self._generate_deterministic_embedding(t) for t in texts]
-
-    def _generate_deterministic_embedding(self, text: str) -> List[float]:
-        """
-        Fast deterministic hashing-based unit vector for local testing and offline fallback.
-        Preserves consistent dimensionality (1536) and cosine properties.
-        """
-        vec = np.zeros(self.dimension, dtype=np.float32)
-        words = text.lower().split()
-        for i, word in enumerate(words):
-            # Compute hash bucket
-            h = int(hashlib.md5(word.encode("utf-8")).hexdigest(), 16)
-            idx = h % self.dimension
-            val = ((h >> 16) % 1000) / 500.0 - 1.0
-            vec[idx] += val * (1.0 / (math.sqrt(i + 1)))
-
-        norm = np.linalg.norm(vec)
-        if norm > 0:
-            vec = vec / norm
-        else:
-            vec[0] = 1.0
-        return vec.tolist()
+    def embed_one(self, text: str) -> List[float]:
+        return self.embed([text])[0]

@@ -1,53 +1,44 @@
 """
-Pydantic Schemas for Strict Structured Outputs via OpenAI API.
+Pydantic schemas for OpenAI Structured Outputs.
+
+Every field is required (no defaults, no numeric constraints) so the schemas are
+valid under strict JSON-schema mode; values are range-checked in code instead.
 """
 
-from typing import List, Optional, Literal
+from __future__ import annotations
+
+from typing import List, Literal, Optional
+
 from pydantic import BaseModel, Field
 
+
 class IntentClassification(BaseModel):
-    """Structured response for email intent categorization."""
     category: Literal["product inquiry", "order request"] = Field(
-        description="Must be strictly 'product inquiry' or 'order request'."
+        description="'order request' only when the customer is placing an order now; otherwise 'product inquiry'."
     )
-    confidence: float = Field(
-        default=1.0,
-        description="Confidence score between 0.0 and 1.0."
-    )
+    confidence: float = Field(description="Confidence between 0.0 and 1.0.")
     customer_name: Optional[str] = Field(
-        default=None,
-        description="Customer's first name if mentioned in the email."
+        description="The sender's own first name if they state it (greeting or signature). "
+        "Never a name of someone else they mention. Null if not stated."
     )
-    language: str = Field(
-        default="en",
-        description="Detected language code (e.g. 'en', 'es', 'fr')."
-    )
-    reasoning: str = Field(
-        description="Concise rationale for classification, noting edge cases (e.g. postponed purchase, noise)."
-    )
+    language: str = Field(description="ISO 639-1 code of the email's language, e.g. 'en', 'es'.")
+    reasoning: str = Field(description="One sentence explaining the decision.")
+
 
 class ExtractedOrderItem(BaseModel):
-    """Represents a single product line extracted from an order email."""
     product_id: Optional[str] = Field(
-        default=None,
-        description="Canonical uppercase alphanumeric product ID matched from candidate list (e.g. 'SWL2345'). Null if unknown."
+        description="Product ID from the candidate list that matches the item. Null if no candidate matches."
     )
-    product_name: Optional[str] = Field(
-        default=None,
-        description="Product name as mentioned in the email."
+    product_name: Optional[str] = Field(description="The item as the customer wrote it.")
+    quantity: Optional[int] = Field(
+        description="Units requested. Upper bound for ranges ('three to four' -> 4). 1 when unspecified. "
+        "Null only when the customer asks for all available stock."
     )
-    quantity: int = Field(
-        default=1,
-        description="Number of units requested. If 'all remaining in stock', set to -1. If vague range like '3 to 4', pick upper bound (4)."
-    )
+    wants_all_available: bool = Field(description="True when the customer asks for all remaining stock.")
     is_active_order: bool = Field(
-        default=True,
-        description="True if the customer is ordering this item NOW. False if mentioning a past purchase or future intent."
+        description="True only if the customer is ordering this item now (not a past purchase or a future plan)."
     )
 
+
 class ExtractedOrder(BaseModel):
-    """Structured extraction of all items from an order email."""
-    items: List[ExtractedOrderItem] = Field(
-        default_factory=list,
-        description="List of product items actively being ordered in this email."
-    )
+    items: List[ExtractedOrderItem]
